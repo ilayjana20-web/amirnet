@@ -1709,27 +1709,28 @@ function stagePanel(k){
 // only words not already known; "yes" marks the word known (never repeats), "no" changes nothing and skips it in future sorts
 function sortPool(){ return ORDER.filter(i => { const w = WORDS[i].w, r = rec(w); return !(r && r[0] >= MASTER) && !P.sortNo[w]; }); }
 function sortStart(){ VIEW = {k: "sort", pool: sortPool(), i: 0, yes: 0, no: 0, hist: [], showHe: false}; render(); scrollTo(0,0); }
-function sortAnswer(knows){
+function sortAnswer(knows){                             // knows: true = green, "partly" = yellow (learned, not sure), false = unchanged
   const V = VIEW, i = V.pool[V.i]; if (i === undefined) return;
   const w = WORDS[i].w;
   V.hist.push({i, prev: P.w[w] ? P.w[w].slice() : null, knows});
-  if (knows) { P.w[w] = [KNOWN, today() + NEVER, 1, 0]; V.yes++; }
+  if (knows === true) { P.w[w] = [KNOWN, today() + NEVER, 1, 0]; V.yes++; }
+  else if (knows === "partly") { P.w[w] = [2, today(), 1, 0]; V.part = (V.part || 0) + 1; }
   else { P.sortNo[w] = 1; V.no++; }
   persist(); V.i++; V.showHe = false; render();
 }
 function sortUndo(){
   const V = VIEW, h = V.hist.pop(); if (!h) return;
   const w = WORDS[h.i].w;
-  if (h.knows) { if (h.prev) P.w[w] = h.prev; else delete P.w[w]; V.yes--; } else { delete P.sortNo[w]; V.no--; }
+  if (h.knows) { if (h.prev) P.w[w] = h.prev; else delete P.w[w]; if (h.knows === "partly") V.part--; else V.yes--; } else { delete P.sortNo[w]; V.no--; }
   persist(); V.i--; V.showHe = false; render();
 }
 function viewSort(){
   const V = VIEW, i = V.pool[V.i], left = V.pool.length - V.i;
   const head = `<div class="shead"><button class="x" data-act2="back" aria-label="יציאה">×</button>
-    <div style="flex:1"><div class="label">מיון מהיר · מכיר או לא</div><div class="num" style="font-size:13px">מכיר <b style="color:var(--good)">${V.yes}</b> · לא מכיר <b>${V.no}</b> · נשארו <b>${left}</b></div></div>
+    <div style="flex:1"><div class="label">מיון מהיר</div><div class="num" style="font-size:13px">ירוק <b style="color:var(--good)">${V.yes}</b> · צהוב <b style="color:var(--warn)">${V.part || 0}</b> · לא <b>${V.no}</b> · נשארו <b>${left}</b></div></div>
     <button class="btn small" data-act2="sortundo" ${V.hist.length ? "" : "disabled"}>בטל אחרון</button></div>`;
   if (i === undefined) return `<div class="stack pop">${head}<section class="card stack" style="align-items:center;text-align:center"><h3>סיימת את כל המילים</h3>
-    <p class="muted" style="margin:0">סימנת ${V.yes} מילים שאתה מכיר. הן לא יחזרו בתרגול.</p>
+    <p class="muted" style="margin:0">${V.yes} ירוקות, ${V.part || 0} צהובות (יחכו ב"להפוך צהוב לירוק").</p>
     ${Object.keys(P.sortNo).length ? `<button class="btn" data-act2="sortreset">להציג שוב את ${Object.keys(P.sortNo).length} המילים שסימנתי "לא מכיר"</button>` : ""}</section></div>`;
   const w = WORDS[i];
   return `<div class="stack">${head}
@@ -1737,9 +1738,10 @@ function viewSort(){
       <div class="word">${esc(w.w)}</div><button class="speak" data-sayw="${esc(w.w)}" aria-label="השמע">${SPEAK_SVG}</button>
       <div class="sent ctx">${markSentence(w)}</div>
       ${V.showHe ? `<div class="hebig" style="font-size:22px">${esc(w.he)}</div>` : `<button class="btn small" data-act2="sorthe">הצג תרגום לבדיקה</button>`}</div>
-    <div class="actbar"><div class="grade" style="grid-template-columns:1fr 1fr">
-      <button class="g0" data-sortans="0">לא מכיר<small>נשאר במילים שלא למדתי</small></button>
-      <button class="g2" data-sortans="1">מכיר<small>נכנס לידועות</small></button></div></div>
+    <div class="actbar"><div class="grade">
+      <button class="g0" data-sortans="0">לא מכיר<small>לא משתנה כלום</small></button>
+      <button class="g1" data-sortans="p">בערך<small>צהוב: לתרגל ולוודא</small></button>
+      <button class="g2" data-sortans="1">מכיר<small>ירוק: ידועה</small></button></div></div>
   </div>`;
 }
 
@@ -2017,7 +2019,7 @@ document.getElementById("app").addEventListener("click", e => {
   if (d.setacc !== undefined) { P.set.acc = +d.setacc; persist(); render(); return; }
   if (d.settog) { P.set[d.settog] = P.set[d.settog] ? 0 : 1; persist(); render(); return; }
   if (d.numbered !== undefined) { simStart("numbered", +d.numbered); return; }
-  if (d.sortans !== undefined) { sortAnswer(d.sortans === "1"); return; }
+  if (d.sortans !== undefined) { sortAnswer(d.sortans === "1" ? true : d.sortans === "p" ? "partly" : false); return; }
   switch (d.act2) {
     case "back": case "home": leaveSub(); render(); scrollTo(0,0); break;
     case "games": leaveSub(); VIEW = {k: "games"}; render(); break;
@@ -2042,8 +2044,9 @@ document.getElementById("app").addEventListener("click", e => {
 });
 document.addEventListener("keydown", e => {
   if (!VIEW || VIEW.k !== "sort" || e.target.matches("input,textarea")) return;
-  if (e.key === "ArrowLeft" || e.key === "2") sortAnswer(true);
-  else if (e.key === "ArrowRight" || e.key === "1") sortAnswer(false);
+  if (e.key === "3" || e.key === "ArrowLeft") sortAnswer(true);
+  else if (e.key === "2") sortAnswer("partly");
+  else if (e.key === "1" || e.key === "ArrowRight") sortAnswer(false);
   else if (e.key === "Backspace") sortUndo();
 });
 document.getElementById("app").addEventListener("input", e => {
@@ -2258,7 +2261,7 @@ function viewLearnTab(){
     ${pageHead("למידה", "שני דברים בלבד: ללמוד מילים חדשות, ולהפוך את הצהובות לירוקות.")}
     ${!Object.keys(P.w).length ? `<section class="card stack movecard"><b>עברת מהאתר הקודם (netlify)?</b>
       <span class="muted" style="font-size:14px">באתר הקודם: התקדמות ← הגדרות ← "צור קוד גיבוי" ← העתק. אחר כך לחץ כאן והדבק את הקוד.</span>
-      <button class="btn small" data-act2="importHere">להדביק קוד גיבוי</button></section>` : ""}
+      <div class="row"><button class="btn small" data-act2="importHere">להדביק קוד גיבוי</button><button class="btn small" data-act2="sort">אין קוד? שחזור מהיר במיון</button></div></section>` : ""}
     <section class="card stack">
       <div class="row" style="justify-content:space-between"><div class="label">שלב ${st.cur + 1} · ${cs.name}</div><span class="num muted">${cs.n.toLocaleString("he-IL")} מילים</span></div>
       <div class="pbar"><span class="k" style="width:${cs.known / cs.n * 100}%"></span><span class="l" style="width:${(cs.seen - cs.known) / cs.n * 100}%"></span></div>
@@ -2270,7 +2273,7 @@ function viewLearnTab(){
     </section>
     <div class="label">כלים נוספים</div>
     <div class="rows">
-      ${rowBtn("sort", "מיון מהיר", "מכיר / לא מכיר. מילים שאתה כבר יודע נהיות ירוקות מיד", 'data-act2="sort"')}
+      ${rowBtn("sort", "מיון מהיר", "מכיר (ירוק) / בערך (צהוב) / לא מכיר. גם לשחזור מהיר של מה שלמדת", 'data-act2="sort"')}
       ${rowBtn("quiz", "שאלון לפי קבוצה", "שאלות אמריקאיות על ליבת המבחן / סבירות גבוהה / השאר", 'data-view="mcq"')}
       ${rowBtn("game", "משחקי מילים", "12 משחקים על המילים שעוד לא יושבות", 'data-view="games"')}
     </div>
