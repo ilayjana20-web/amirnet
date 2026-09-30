@@ -292,6 +292,15 @@ body{font-size:17px;line-height:1.6}
 .mcg .bar{height:6px}
 @media (max-width:420px){.mcgroups{grid-template-columns:1fr}}
 .newtag{background:var(--accent);color:var(--accent-ink);border-radius:6px;padding:1px 7px;font-weight:800;margin-inline-end:4px}
+.actcard{display:flex;flex-direction:column;gap:10px;padding:18px}
+.actcard.rec{border:1.5px solid var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.actcard p{margin:0;font-size:15px}
+.acthead{display:flex;align-items:center;gap:8px;font-size:19px}
+.acthead .pill{margin-inline-start:auto}
+.swatch{width:18px;height:18px;border-radius:5px;display:inline-block}
+.swatch.gray{background:var(--b0)}.swatch.yellow{background:var(--b1)}.swatch.green{background:var(--good)}
+.acthead .arrow{color:var(--muted);font-weight:800}
+.bignum{font-size:15px;color:var(--muted)}.bignum b{font-size:28px;color:var(--ink);margin-inline-end:4px}
 .movecard{border:1.5px dashed var(--accent);gap:6px}
 .lsdots{display:inline-flex;gap:5px}
 .kdots{display:inline-flex;gap:4px;direction:ltr}.kdots i{width:10px;height:10px;border-radius:50%;background:var(--b0)}.kdots i.on{background:var(--good)}
@@ -499,6 +508,11 @@ function pick(src, size){
   else if (src === "hard") hard.forEach(add);
   else if (src === "conn") { ORDER.filter(i => WORDS[i].pos === "conj").sort((a,b) => (rec(WORDS[a].w)?rec(WORDS[a].w)[0]:0) - (rec(WORDS[b].w)?rec(WORDS[b].w)[0]:0)).forEach(add); }
   else if (src === "all") shuffle(ORDER.slice()).forEach(add);
+  else if (src === "learnnew") ORDER.filter(i => !rec(WORDS[i].w) && !WORDS[i].b).forEach(add);   // new words by importance
+  else if (src === "verify") {                                       // yellow → green: words in learning, closest to green first
+    ORDER.filter(i => { const r = rec(WORDS[i].w); return r && r[0] < MASTER; })
+      .sort((a, b) => (rec(WORDS[b].w)[0] - rec(WORDS[a].w)[0]) || (rec(WORDS[b].w)[3] - rec(WORDS[a].w)[3])).forEach(add);
+  }
   else if (src === "learn") {
     const rev = ORDER.filter(i => { const r = rec(WORDS[i].w); return r && r[0] < MASTER && r[1] <= t; })
       .sort((a, b) => (rec(WORDS[b].w)[3] - rec(WORDS[a].w)[3]) || (rec(WORDS[a].w)[0] - rec(WORDS[b].w)[0]));
@@ -512,7 +526,7 @@ function pick(src, size){
   }
   else if (src === "mine") shuffle(ORDER.filter(i => P.mine && P.mine[WORDS[i].w])).forEach(add);
   else if (src.startsWith("stage:")) { const ws = stageWords(+src.slice(6)); ws.filter(i => { const r = rec(WORDS[i].w); return !r || r[0] < 3; }).forEach(add); ws.forEach(add); }
-  return src === "auto" || src === "new" || src === "learn" ? out : shuffle(out);
+  return src === "auto" || src === "new" || src === "learn" || src === "learnnew" ? out : shuffle(out);
 }
 // time to read the sentence + translation after a correct answer: long enough to read, not slow
 function readDelay(){
@@ -780,7 +794,7 @@ function viewSession(){
     if (show) { const dl = S.state === "right" ? readDelay() : 0;
       bar = `<button class="btn primary big ${dl ? "countdown" : ""}" style="--d:${dl}ms" data-act="next">המשך</button>`; }
   }
-  const title = S.src === "learn" ? "סשן למידה" : (MODES.find(x => x[0] === S.mode) || [0,""])[1] + (S.mode === "mc" ? " · " + (MODES.find(x => x[0] === m) || [0,""])[1] : "");
+  const title = S.src === "learnnew" ? "למידה · מילים חדשות" : S.src === "verify" ? "צהוב ← ירוק · תרגול ווידוא" : S.src === "learn" ? "סשן למידה" : (MODES.find(x => x[0] === S.mode) || [0,""])[1] + (S.mode === "mc" ? " · " + (MODES.find(x => x[0] === m) || [0,""])[1] : "");
   return `<div class="stack">
     <div class="shead"><button class="x" data-act="quit" aria-label="יציאה">×</button><div class="goal"><span style="width:${pct}%"></span></div>
       <span class="num muted">${S.i+1}/${n}</span>${S.limit ? `<span class="timer" id="timer"></span>` : ""}</div>
@@ -804,9 +818,15 @@ function next(){
   S.i++;
   if (S.i >= S.items.length) finish(); else { prepare(); render(); }
 }
-function finish(){ S.done = true; render(); scrollTo(0,0); if (S.src === "learn") learnAutoNext(); }
+function finish(){
+  S.done = true;
+  if (S.src === "verify") { act().verify = (act().verify || 0) + 1; persist(); }
+  if (S.src === "learnnew" || S.src === "learn") { act().learn = (act().learn || 0) + 1; persist(); }
+  render(); scrollTo(0,0);
+  if (S.src === "learn" || S.src === "learnnew" || S.src === "verify") learnAutoNext();
+}
 function viewResults(){
-  if (S.src === "learn") return viewLearnResults();
+  if (S.src === "learn" || S.src === "learnnew" || S.src === "verify") return viewLearnResults();
   const pct = S.answered ? Math.round(S.right / S.answered * 100) : 0;
   const wrong = [...new Set(S.log.filter(x => !x[1]).map(x => x[0]))];
   const rows = (S.mode === "exam" ? S.log : wrong.map(i => [i,false])).map(([i, ok]) => {
@@ -835,23 +855,24 @@ function viewLearnResults(){
     return `<div class="result-row"><span><span class="en" style="font-weight:700">${esc(WORDS[i].w)}</span> · ${esc(WORDS[i].he)}</span><span class="kdots">${[1,2,3].map(k => `<i class="${b - 1 >= k ? "on" : ""}"></i>`).join("")}</span></div>`; };
   return `<div class="stack pop">
     <section class="card stack" style="text-align:center;align-items:center">
-      <div class="label">סשן למידה · סיכום</div>
+      <div class="label">${S.src === "verify" ? "צהוב ← ירוק · סיכום" : "למידה · סיכום"}</div>
       <div class="big-score num">${S.right}/${S.answered}</div>
-      <div class="muted">תשובות נכונות${nowKnown.length ? ` · ${nowKnown.length} מילים עברו לידועות` : ""}</div>
+      <div class="muted">תשובות נכונות${nowKnown.length ? ` · <b style="color:var(--good)">${nowKnown.length} מילים הפכו לירוקות</b>` : ""} · נשארו ${yellowCount()} בצהוב</div>
     </section>
-    ${S.autoLeft != null ? `<div class="autonext">הסשן הבא מתחיל בעוד <b id="learnauto" class="num">${S.autoLeft}</b> שניות</div>` : ""}
+    ${S.autoLeft != null && !(S.src === "verify" && !yellowCount()) ? `<div class="autonext">הסבב הבא מתחיל בעוד <b id="learnauto" class="num">${S.autoLeft}</b> שניות</div>` : ""}
     <div class="row"><button class="btn primary big" style="flex:2" data-act="learnNext">להמשיך עכשיו</button><button class="btn big" style="flex:1" data-act="learnStop">לעצור כאן</button></div>
     <section class="card"><div class="label" style="margin-bottom:6px">המילים בסשן · נקודה ירוקה לכל תשובה נכונה ברצף (3 = ידועה)</div>${ids.map(row).join("")}</section>
     ${wrong.length ? `<p class="muted" style="margin:0;font-size:14px">${wrong.length} מילים שטעית בהן יחזרו כבר בסשן הבא.</p>` : ""}
   </div>`;
 }
-function learnStart(){ clearInterval(learnAuto); start("mc", "learn"); }
+function learnStart(src){ clearInterval(learnAuto); start("mc", src || "learnnew"); }
+function yellowCount(){ let n = 0; for (const r of Object.values(P.w)) if (r[0] < MASTER) n++; return n; }
 function learnAutoNext(){
   clearInterval(learnAuto); const ref = S; ref.autoLeft = 8; render();
   learnAuto = setInterval(() => {
     if (S !== ref || !ref.done) { clearInterval(learnAuto); return; }
     ref.autoLeft--; const el = document.getElementById("learnauto"); if (el) el.textContent = ref.autoLeft;
-    if (ref.autoLeft <= 0) learnStart();
+    if (ref.autoLeft <= 0) { if (ref.src === "verify" && !yellowCount()) { clearInterval(learnAuto); S = null; TAB = "learn"; render(); } else learnStart(ref.src); }
   }, 1000);
 }
 
@@ -928,7 +949,7 @@ document.getElementById("app").addEventListener("click", e => {
     case "leave": { const to = S.confirmLeave; S = null; if (to && to !== "__back") TAB = to; render(); break; }
     case "stay": S.confirmLeave = null; render(); break;
     case "home": S = null; TAB = "home"; render(); break;
-    case "learnNext": learnStart(); break;
+    case "learnNext": learnStart(S && S.src); break;
     case "learnStop": clearInterval(learnAuto); S = null; TAB = "learn"; render(); break;
     case "more": L.limit += 150; render(); break;
     case "restartPlan": P.start = today(); persist(); render(); break;
@@ -1495,9 +1516,9 @@ function todaySteps(){
   const D = P.d[today()] || {n: 0, a: 0, c: 0}, A = P.act[today()] || {}, c = counts(), tgt = newTarget();
   const m = scoreModel(), wk = weakestType(m), dl = daysLeft();
   const steps = [
-    {k: "learn", t: "למידה", d: `סשן למידה של מילים חדשות (${D.n}/${tgt} מילים היום)`, done: D.n >= tgt, go: 'data-lsstart="1"'},
+    {k: "learn", t: "למידה", d: `מילים חדשות (${D.n}/${tgt} היום)`, done: D.n >= tgt, go: 'data-learn="learnnew"'},
     {k: "sc", t: "תרגול", d: wk ? `10 שאלות ${SECNAME[wk.t]} (הסוג שהכי חלש אצלך)` : "10 שאלות השלמת משפטים כמו במבחן", done: (A.prac || 0) >= 10, go: `data-simtype="${wk ? wk.t : "sc"}"`},
-    {k: "cards", t: "חזרה", d: c.due ? `${c.due} מילים מחכות לחזרה` : "אין מילים לחזרה היום", done: c.due === 0, go: 'data-go="cards" data-src="review"'}
+    {k: "cards", t: "צהוב ← ירוק", d: yellowCount() ? `${yellowCount()} מילים בצהוב לתרגל ולוודא` : "אין מילים בצהוב", done: !yellowCount() || (P.act[today()] || {}).verify >= 1, go: 'data-learn="verify"'}
   ];
   if (dl <= 3 || planDay() % 3 === 0) steps.push({k: "sim", t: "סימולציה", d: "מבחן מלא בתנאי אמת", done: !!A.sim, go: 'data-sim="startFull"'});
   return steps;
@@ -1969,7 +1990,7 @@ document.getElementById("app").addEventListener("click", e => {
   if (d.task) {
     const g = d.task;
     if (g === "cards") start("cards", "auto");
-    else if (g === "lsession") learnStart();
+    else if (g === "lsession") learnStart("learnnew");
     else if (g === "sim") { TAB = "sim"; render(); }
     else if (g === "placement") placeStart();
     else if (g === "games") { VIEW = {k: "games"}; render(); }
@@ -2213,33 +2234,40 @@ function lsStage(){                                        // where the student 
   return {info, cur: cur < 0 ? info.length - 1 : cur};
 }
 function viewLearnTab(){
-  const c = counts(), D = P.d[today()] || {n: 0}, tgt = newTarget(), st = lsStage(), cs = st.info[st.cur];
-  const plan = pick("learn", 20), nRev = plan.filter(i => rec(WORDS[i].w)).length, nNew = plan.length - nRev;
-  const nextWords = plan.filter(i => !rec(WORDS[i].w)).slice(0, 8).map(i => WORDS[i].w);
-  const pos = cs.seen + 1;
+  const D = P.d[today()] || {n: 0}, tgt = newTarget(), st = lsStage(), cs = st.info[st.cur];
+  const nextWords = pick("learnnew", 8).map(i => WORDS[i].w);
+  const yl = yellowCount(), yellowFirst = yl >= 40;
+  const learnCard = `<section class="card actcard ${yellowFirst ? "" : "rec"}">
+      <div class="acthead"><span class="swatch gray"></span><b>ללמוד מילים חדשות</b>${yellowFirst ? "" : `<span class="pill">מומלץ עכשיו</span>`}</div>
+      <p class="muted">20 מילים חדשות, הכי חשובות למבחן קודם. כל מילה שענית עליה הופכת לצהובה.</p>
+      ${nextWords.length ? `<div class="chips">${nextWords.map(w => `<span class="wchip">${esc(w)}</span>`).join("")}</div>` : `<p class="muted">אין עוד מילים חדשות.</p>`}
+      <button class="btn ${yellowFirst ? "" : "primary"} big" data-learn="learnnew" ${nextWords.length ? "" : "disabled"}>ללמוד 20 מילים חדשות</button>
+      <div class="goalline"><span>היום: <b class="num">${D.n}</b>/${tgt} חדשות</span><span class="goal"><span style="width:${Math.min(100, tgt ? D.n / tgt * 100 : 0)}%"></span></span></div>
+    </section>`;
+  const verifyCard = `<section class="card actcard ${yellowFirst ? "rec" : ""}">
+      <div class="acthead"><span class="swatch yellow"></span><span class="arrow">←</span><span class="swatch green"></span><b>להפוך צהוב לירוק</b>${yellowFirst ? `<span class="pill">מומלץ עכשיו</span>` : ""}</div>
+      <p class="muted">תרגול ווידוא על המילים שהתחלת ללמוד. כל תשובה נכונה מקדמת את המילה, ו-3 נכונות ברצף הופכות אותה לירוקה (ידועה). טעות מחזירה להתחלה.</p>
+      <div class="bignum"><b class="num">${yl}</b> מילים בצהוב</div>
+      <button class="btn ${yellowFirst ? "primary" : ""} big" data-learn="verify" ${yl ? "" : "disabled"}>לתרגל ולוודא (20 שאלות)</button>
+    </section>`;
   return `<div class="stack pop">
-    ${pageHead("למידה", "הדרך שלך במילים של המבחן. מתקדמת לבד, מהמילים הכי חשובות.")}
+    ${pageHead("למידה", "שני דברים בלבד: ללמוד מילים חדשות, ולהפוך את הצהובות לירוקות.")}
     ${!Object.keys(P.w).length ? `<section class="card stack movecard"><b>עברת מהאתר הקודם (netlify)?</b>
       <span class="muted" style="font-size:14px">באתר הקודם: התקדמות ← הגדרות ← "צור קוד גיבוי" ← העתק. אחר כך לחץ כאן והדבק את הקוד.</span>
       <button class="btn small" data-act2="importHere">להדביק קוד גיבוי</button></section>` : ""}
-    <section class="card nextcard">
-      <div class="label">שלב ${st.cur + 1} · ${cs.name}</div>
-      <h2 class="h2">${cs.left ? `מילה ${pos.toLocaleString("he-IL")} מתוך ${cs.n.toLocaleString("he-IL")}` : "סיימת את כל המילים"}</h2>
+    <section class="card stack">
+      <div class="row" style="justify-content:space-between"><div class="label">שלב ${st.cur + 1} · ${cs.name}</div><span class="num muted">${cs.n.toLocaleString("he-IL")} מילים</span></div>
       <div class="pbar"><span class="k" style="width:${cs.known / cs.n * 100}%"></span><span class="l" style="width:${(cs.seen - cs.known) / cs.n * 100}%"></span></div>
-      <div class="legend"><span><i style="background:var(--good)"></i>יודע ${cs.known}</span><span><i style="background:var(--b1)"></i>בלמידה ${cs.seen - cs.known}</span><span><i style="background:var(--b0)"></i>עוד לא ${cs.left}</span></div>
-      <p class="lead">כל סשן: 20 שאלות אמריקאיות. הבא: ${nRev ? `<b>${nRev}</b> לחזרה + ` : ""}<b>${nNew}</b> חדשות לפי החשיבות. מילה נחשבת ידועה אחרי 3 תשובות נכונות ברצף, בסשנים שונים.</p>
-      ${nextWords.length ? `<div class="chips">${nextWords.map(w => `<span class="wchip">${esc(w)}</span>`).join("")}</div>` : ""}
-      <button class="btn primary big" data-lsstart="1">${D.n || (P.act[today()] || {}).learn ? "להמשיך ללמוד" : "להתחיל ללמוד"}</button>
-      <div class="goalline"><span>היום: <b class="num">${D.n}</b>/${tgt} מילים חדשות</span><span class="goal"><span style="width:${Math.min(100, tgt ? D.n / tgt * 100 : 0)}%"></span></span></div>
+      <div class="legend"><span><i style="background:var(--good)"></i>ירוק = יודע <b class="num">${cs.known}</b></span><span><i style="background:var(--b1)"></i>צהוב = בלמידה <b class="num">${cs.seen - cs.known}</b></span><span><i style="background:var(--b0)"></i>אפור = עוד לא <b class="num">${cs.left}</b></span></div>
     </section>
+    ${yellowFirst ? verifyCard + learnCard : learnCard + verifyCard}
     <section class="card stack"><div class="label">הדרך</div>
-      <div class="path3">${st.info.map((x, k) => `<div class="p3 ${k < st.cur ? "done" : k === st.cur ? "cur" : ""}"><span class="dot">${k < st.cur ? "✓" : k + 1}</span><span class="rt"><b>${x.name}</b><span class="num">${x.known}/${x.n} ידועות</span></span></div>`).join("")}</div>
+      <div class="path3">${st.info.map((x, k) => `<div class="p3 ${k < st.cur ? "done" : k === st.cur ? "cur" : ""}"><span class="dot">${k < st.cur ? "✓" : k + 1}</span><span class="rt"><b>${x.name}</b><span class="num">${x.known}/${x.n} ירוקות</span></span></div>`).join("")}</div>
     </section>
     <div class="label">כלים נוספים</div>
     <div class="rows">
-      ${rowBtn("quiz", "שאלון אמריקאי", "לבחור קבוצת מילים ולענות על שאלות עם 4 תשובות", 'data-view="mcq"')}
-      ${rowBtn("cards", "חזרה בכרטיסיות", "המילים שכבר למדת ומחכות לחזרה", 'data-go="cards" data-src="review"', c.due ? `<span class="pill">${c.due}</span>` : "")}
-      ${rowBtn("sort", "מיון מהיר", "מכיר / לא מכיר. מוציא מהדרך מילים שאתה כבר יודע", 'data-act2="sort"')}
+      ${rowBtn("sort", "מיון מהיר", "מכיר / לא מכיר. מילים שאתה כבר יודע נהיות ירוקות מיד", 'data-act2="sort"')}
+      ${rowBtn("quiz", "שאלון לפי קבוצה", "שאלות אמריקאיות על ליבת המבחן / סבירות גבוהה / השאר", 'data-view="mcq"')}
       ${rowBtn("game", "משחקי מילים", "12 משחקים על המילים שעוד לא יושבות", 'data-view="games"')}
     </div>
   </div>`;
@@ -2256,7 +2284,10 @@ function viewMcq(){
       return rowBtn("quiz", name, sub, `data-go="mc" data-src="${src}"`, `<span class="num muted">${k}/${arr.length}</span><span class="bar mini"><span style="width:${arr.length ? k / arr.length * 100 : 0}%;background:var(--accent)"></span></span>`); }).join("")}</div>
   </div>`;
 }
-document.getElementById("app").addEventListener("click", e => { if (e.target.closest("[data-lsstart]")) learnStart(); });
+document.getElementById("app").addEventListener("click", e => {
+  const t = e.target.closest("[data-lsstart],[data-learn]"); if (!t) return;
+  learnStart(t.dataset.learn || "learnnew");
+});
 
 /* ================= games.js — 12 word-practice games (Hebrew RTL UI) =================
    Host provides: WORDS, esc, shuffle, blankSentence. We define: GAMES, gameStart, gameStop.
