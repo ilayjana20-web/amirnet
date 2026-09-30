@@ -1871,7 +1871,11 @@ function viewSettings(){
 </div>`;
 }
 function b64enc(str){ return btoa(unescape(encodeURIComponent(str))); }
-function b64dec(b){ return decodeURIComponent(escape(atob(b.trim()))); }
+function b64dec(b){                                     // tolerant: spaces, line breaks, quotes and «» from copying on a phone are ignored
+  const t = String(b || "").trim();
+  if (t.startsWith("{")) return t;                     // a raw JSON backup works too
+  return decodeURIComponent(escape(atob(t.replace(/[\s"'«»“”]/g, ""))));
+}
 
 /* ---------- answer journal ---------- */
 function findQ(id){
