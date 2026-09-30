@@ -1707,8 +1707,16 @@ function stagePanel(k){
 
 /* ---------- quick sort: "do I know this word?" yes/no ---------- */
 // only words not already known; "yes" marks the word known (never repeats), "no" changes nothing and skips it in future sorts
-function sortPool(){ return ORDER.filter(i => { const w = WORDS[i].w, r = rec(w); return !(r && r[0] >= MASTER) && !P.sortNo[w]; }); }
-function sortStart(){ VIEW = {k: "sort", pool: sortPool(), i: 0, yes: 0, no: 0, hist: [], showHe: false}; render(); scrollTo(0,0); }
+const SORTGROUPS = {core: ["ליבת המבחן", w => w.t === 1], likely: ["סבירות גבוהה", w => w.t === 2], rest: ["שאר המילים", w => w.t == null || w.t >= 3], all: ["כל המילים", () => true]};
+function sortPool(g){ const f = (SORTGROUPS[g] || SORTGROUPS.all)[1]; return ORDER.filter(i => { const w = WORDS[i], r = rec(w.w); return f(w) && !(r && r[0] >= MASTER) && !P.sortNo[w.w]; }); }
+function sortStart(g){ VIEW = {k: "sort", g: g || "core", pool: sortPool(g || "core"), i: 0, yes: 0, no: 0, hist: [], showHe: false}; render(); scrollTo(0,0); }
+function viewSortPick(){
+  return `<div class="stack pop">${subHead("מיון מהיר")}
+    <p class="muted" style="margin:0">עוברים על מילים אחת-אחת ומסמנים: מכיר (ירוק), בערך (צהוב), לא מכיר. בחר קבוצה. המילים מסודרות לפי החשיבות.</p>
+    <div class="rows">${["core","likely","rest","all"].map(g => { const n = sortPool(g).length, tot = WORDS.filter(SORTGROUPS[g][1]).length;
+      return rowBtn("sort", SORTGROUPS[g][0], g === "core" ? "המילים הכי חשובות למבחן" : g === "likely" ? "מילים שמופיעות בהרבה רשימות" : g === "rest" ? "מילים נדירות יותר ובסיסיות" : "הכל, לפי סדר החשיבות", `data-sortgroup="${g}"`, `<span class="num muted">${n.toLocaleString("he-IL")} למיון</span><span class="num muted" style="font-size:12px">מתוך ${tot.toLocaleString("he-IL")}</span>`); }).join("")}</div>
+  </div>`;
+}
 function sortAnswer(knows){                             // knows: true = green, "partly" = yellow (learned, not sure), false = unchanged
   const V = VIEW, i = V.pool[V.i]; if (i === undefined) return;
   const w = WORDS[i].w;
@@ -1727,7 +1735,7 @@ function sortUndo(){
 function viewSort(){
   const V = VIEW, i = V.pool[V.i], left = V.pool.length - V.i;
   const head = `<div class="shead"><button class="x" data-act2="back" aria-label="יציאה">×</button>
-    <div style="flex:1"><div class="label">מיון מהיר</div><div class="num" style="font-size:13px">ירוק <b style="color:var(--good)">${V.yes}</b> · צהוב <b style="color:var(--warn)">${V.part || 0}</b> · לא <b>${V.no}</b> · נשארו <b>${left}</b></div></div>
+    <div style="flex:1"><div class="label">מיון מהיר · ${(SORTGROUPS[V.g] || SORTGROUPS.all)[0]}</div><div class="num" style="font-size:13px">ירוק <b style="color:var(--good)">${V.yes}</b> · צהוב <b style="color:var(--warn)">${V.part || 0}</b> · לא <b>${V.no}</b> · נשארו <b>${left}</b></div></div>
     <button class="btn small" data-act2="sortundo" ${V.hist.length ? "" : "disabled"}>בטל אחרון</button></div>`;
   if (i === undefined) return `<div class="stack pop">${head}<section class="card stack" style="align-items:center;text-align:center"><h3>סיימת את כל המילים</h3>
     <p class="muted" style="margin:0">${V.yes} ירוקות, ${V.part || 0} צהובות (יחכו ב"להפוך צהוב לירוק").</p>
@@ -1983,12 +1991,13 @@ function viewSub(){
     case "mcq": return viewMcq();
     case "learn": return viewLearn();
     case "sort": return viewSort();
+    case "sortpick": return viewSortPick();
   }
   return "";
 }
 function leaveSub(){ if (VIEW && VIEW.k === "game") gameStop(); clearInterval(focusTimer); VIEW = null; }
 document.getElementById("app").addEventListener("click", e => {
-  const t = e.target.closest("[data-view],[data-tab-go],[data-task],[data-act2],[data-stage],[data-game],[data-gamestage],[data-topic],[data-read],[data-tw],[data-sayw],[data-rq],[data-star],[data-plmin],[data-pllvl],[data-plopt],[data-setacc],[data-settog],[data-numbered],[data-hear],[data-sortans]");
+  const t = e.target.closest("[data-view],[data-tab-go],[data-task],[data-act2],[data-stage],[data-game],[data-gamestage],[data-topic],[data-read],[data-tw],[data-sayw],[data-rq],[data-star],[data-plmin],[data-pllvl],[data-plopt],[data-setacc],[data-settog],[data-numbered],[data-hear],[data-sortans],[data-sortgroup]");
   if (!t) return;
   const d = t.dataset;
   if (d.view) { leaveSub(); VIEW = {k: d.view}; render(); scrollTo(0,0); return; }
@@ -2019,6 +2028,7 @@ document.getElementById("app").addEventListener("click", e => {
   if (d.setacc !== undefined) { P.set.acc = +d.setacc; persist(); render(); return; }
   if (d.settog) { P.set[d.settog] = P.set[d.settog] ? 0 : 1; persist(); render(); return; }
   if (d.numbered !== undefined) { simStart("numbered", +d.numbered); return; }
+  if (d.sortgroup) { sortStart(d.sortgroup); return; }
   if (d.sortans !== undefined) { sortAnswer(d.sortans === "1" ? true : d.sortans === "p" ? "partly" : false); return; }
   switch (d.act2) {
     case "back": case "home": leaveSub(); render(); scrollTo(0,0); break;
@@ -2028,10 +2038,10 @@ document.getElementById("app").addEventListener("click", e => {
     case "plbegin": placeBegin(); break;
     case "closepop": VIEW.pop = null; render(); break;
     case "journal": VIEW = {k: "journal"}; render(); break;
-    case "sort": sortStart(); break;
+    case "sort": leaveSub(); VIEW = {k: "sortpick"}; render(); scrollTo(0,0); break;
     case "sortundo": sortUndo(); break;
     case "sorthe": VIEW.showHe = true; render(); break;
-    case "sortreset": P.sortNo = {}; persist(); sortStart(); break;
+    case "sortreset": P.sortNo = {}; persist(); sortStart(VIEW.g); break;
     case "focus": startFocus(); break;
     case "focusdone": clearInterval(focusTimer); VIEW = null; simStart("full"); break;
     case "export": VIEW.code = b64enc(JSON.stringify(P)); VIEW.importing = false; render(); break;
@@ -2261,7 +2271,7 @@ function viewLearnTab(){
     ${pageHead("למידה", "שני דברים בלבד: ללמוד מילים חדשות, ולהפוך את הצהובות לירוקות.")}
     ${!Object.keys(P.w).length ? `<section class="card stack movecard"><b>עברת מהאתר הקודם (netlify)?</b>
       <span class="muted" style="font-size:14px">באתר הקודם: התקדמות ← הגדרות ← "צור קוד גיבוי" ← העתק. אחר כך לחץ כאן והדבק את הקוד.</span>
-      <div class="row"><button class="btn small" data-act2="importHere">להדביק קוד גיבוי</button><button class="btn small" data-act2="sort">אין קוד? שחזור מהיר במיון</button></div></section>` : ""}
+      <div class="row"><button class="btn small" data-act2="importHere">להדביק קוד גיבוי</button><button class="btn small" data-sortgroup="core">אין קוד? שחזור מהיר במיון</button></div></section>` : ""}
     <section class="card stack">
       <div class="row" style="justify-content:space-between"><div class="label">שלב ${st.cur + 1} · ${cs.name}</div><span class="num muted">${cs.n.toLocaleString("he-IL")} מילים</span></div>
       <div class="pbar"><span class="k" style="width:${cs.known / cs.n * 100}%"></span><span class="l" style="width:${(cs.seen - cs.known) / cs.n * 100}%"></span></div>
