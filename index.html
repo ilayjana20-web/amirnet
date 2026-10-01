@@ -777,7 +777,7 @@ function viewSession(){
     body = `<div class="card stack"><h3>לצאת מהסבב?</h3><p class="muted" style="margin:0">מה שכבר ענית נשמר.</p><div class="row"><button class="btn primary" data-act="leave">כן, לצאת</button><button class="btn" data-act="stay">להמשיך לתרגל</button></div></div>`;
   } else if (m === "cards") {
     if (S.state === "ask") {
-      body = `<div class="card qcard pop" data-act="flip" role="button">${pos}<div class="word">${esc(w.w)}</div>${spk}<div class="sent ctx">${markSentence(w)}</div><div class="hint">לחיצה על הכרטיס הופכת אותו</div></div>`;
+      body = `<div class="card qcard pop" data-act="flip" role="button">${pos}<div class="word">${esc(w.w)}</div>${spk}<div class="sent ctx">${markSentence(w)}</div><div class="hint">לחיצה על מילה במשפט = תרגום שלה · לחיצה על הכרטיס = הפיכה</div></div>`;
       bar = `<button class="btn primary big" data-act="flip">הצג פירוש</button>`;
     } else {
       body = `<div class="card qcard pop back"><div class="row" style="justify-content:center;gap:8px"><span class="en" style="font-size:24px;font-weight:600">${esc(w.w)}</span>${spk}</div>
