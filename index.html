@@ -1796,7 +1796,7 @@ function stagePanel(k){
 /* ---------- quick sort: "do I know this word?" yes/no ---------- */
 // only words not already known; "yes" marks the word known (never repeats), "no" changes nothing and skips it in future sorts
 const SORTGROUPS = {core: ["ליבת המבחן", w => w.t === 1], likely: ["סבירות גבוהה", w => w.t === 2], rest: ["שאר המילים", w => w.t == null || w.t >= 3], all: ["כל המילים", () => true]};
-function sortPool(g){ const f = (SORTGROUPS[g] || SORTGROUPS.all)[1]; return ORDER.filter(i => { const w = WORDS[i], r = rec(w.w); return f(w) && !(r && r[0] >= MASTER) && !P.sortNo[w.w]; }); }
+function sortPool(g){ const f = (SORTGROUPS[g] || SORTGROUPS.all)[1]; return ORDER.filter(i => { const w = WORDS[i], r = rec(w.w); return f(w) && !r && !P.sortNo[w.w]; }); }   // only words never marked: green, yellow (sort "בערך" or learning) and "לא מכיר" never come back
 function sortStart(g){ VIEW = {k: "sort", g: g || "core", pool: sortPool(g || "core"), i: 0, yes: 0, no: 0, hist: [], showHe: false}; render(); scrollTo(0,0); }
 function viewSortPick(){
   return `<div class="stack pop">${subHead("מיון מהיר")}
