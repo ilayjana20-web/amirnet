@@ -301,6 +301,12 @@ body{font-size:17px;line-height:1.6}
 .swatch.gray{background:var(--b0)}.swatch.yellow{background:var(--b1)}.swatch.green{background:var(--good)}
 .acthead .arrow{color:var(--muted);font-weight:800}
 .bignum{font-size:15px;color:var(--muted)}.bignum b{font-size:28px;color:var(--ink);margin-inline-end:4px}
+#twpop2{position:fixed;inset-inline:12px;bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:9;max-width:480px;margin-inline-start:auto;background:var(--surface);border:1.5px solid var(--accent);border-radius:16px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:6px}
+#twpop2 .tp-row{display:flex;justify-content:space-between;align-items:center}
+#twpop2 .tp-row b{font-size:20px}
+#twpop2 .tp-he{font-size:18px;font-weight:700}
+.tw2{border-bottom:1px dotted var(--muted);cursor:pointer}
+.tw2:active{background:var(--mark)}
 .movecard{border:1.5px dashed var(--accent);gap:6px}
 .lsdots{display:inline-flex;gap:5px}
 .kdots{display:inline-flex;gap:4px;direction:ltr}.kdots i{width:10px;height:10px;border-radius:50%;background:var(--b0)}.kdots i.on{background:var(--good)}
@@ -537,25 +543,47 @@ function readDelay(){
 }
 // word test: random questions from the WHOLE bank (learned or not), exam-level items only, weighted like the exam (levels 1–3)
 function examPick(size){
-  const pool = ORDER.filter(i => WORDS[i].eq && (WORDS[i].t == null || WORDS[i].t <= 2));
+  const pool = ORDER.filter(i => WORDS[i].eq && (simPrefs.pool === "core" ? WORDS[i].t === 1 : (WORDS[i].t == null || WORDS[i].t <= 2)));
   const byL = [1,2,3].map(l => shuffle(pool.filter(i => zdiff(WORDS[i]) === l)));
   const want = [Math.round(size*.25), Math.round(size*.5)]; want.push(size - want[0] - want[1]);   // 3/6/3 like the official practice test
   return shuffle([].concat(...byL.map((a, k) => a.slice(0, want[k]))));
 }
+// Exam-style distractors (as on NITE's tests): same part of speech, similar level, and LOOK-ALIKE words
+// (shared prefix/suffix, similar spelling), so the options can't be told apart without really knowing the word.
+const BYPOS = {};
+WORDS.forEach((w, j) => { (BYPOS[w.pos] = BYPOS[w.pos] || []).push(j); });
+const bigr = s => { const a = new Set(); s = s.toLowerCase(); for (let k = 0; k < s.length - 1; k++) a.add(s.slice(k, k + 2)); return a; };
+const heWords = he => new Set(String(he || "").split(/[,;()\s]+/).filter(x => x.length > 1));
+function similarity(a, b){
+  const x = a.toLowerCase(), y = b.toLowerCase();
+  let p = 0; while (p < Math.min(x.length, y.length, 5) && x[p] === y[p]) p++;
+  let s = 0; while (s < Math.min(x.length, y.length, 5) && x[x.length - 1 - s] === y[y.length - 1 - s]) s++;
+  const A = bigr(x), B = bigr(y); let inter = 0; A.forEach(g => { if (B.has(g)) inter++; });
+  const dice = A.size + B.size ? 2 * inter / (A.size + B.size) : 0;
+  return 2.2 * p + 1.6 * s + 5 * dice - 0.35 * Math.abs(x.length - y.length);
+}
 function distractors(i, n, sameField){
-  const w = WORDS[i]; const pool = [];
-  const ok = j => j !== i && WORDS[j].pos === w.pos && WORDS[j].w.toLowerCase() !== w.w.toLowerCase() && WORDS[j].he !== w.he;
-  const tight = ORDER.filter(j => ok(j) && WORDS[j].lvl === w.lvl && (WORDS[j].b || 0) === (w.b || 0));
-  const bySame = tight.length >= 12 ? tight : ORDER.filter(ok);
-  const src = bySame.length >= 12 ? bySame : ORDER.filter(j => j !== i);
-  const tried = new Set();
-  while (pool.length < n && tried.size < src.length) {
-    const j = src[Math.floor(Math.random()*src.length)]; if (tried.has(j)) continue; tried.add(j);
+  const w = WORDS[i], hw = heWords(w.he), syn = (w.syn || "").toLowerCase();
+  const ok = j => { const v = WORDS[j]; if (j === i || v.w.toLowerCase() === w.w.toLowerCase() || v.he === w.he) return false;
+    if (!!v.b !== !!w.b && !w.b) return false;                          // keep everyday words out of exam-level options
+    if (syn && syn.split(/,\s*/).includes(v.w.toLowerCase())) return false;             // never a synonym = second right answer
+    if ((v.syn || "").toLowerCase().split(/,\s*/).includes(w.w.toLowerCase())) return false;
+    for (const t of heWords(v.he)) if (hw.has(t)) return false;           // shares a Hebrew meaning → too close
+    return true; };
+  const cands = (BYPOS[w.pos] || []).filter(ok);
+  const scored = cands.map(j => [j, similarity(w.w, WORDS[j].w) + (WORDS[j].lvl === w.lvl ? 1 : 0) + (WORDS[j].t != null && WORDS[j].t === w.t ? .5 : 0) + Math.random() * 1.2])
+    .sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const pool = [];
+  for (const [j] of shuffle(scored)) {
+    if (pool.length >= n) break;
     if (pool.some(k => WORDS[k][sameField] === WORDS[j][sameField])) continue;
     pool.push(j);
   }
+  if (pool.length < n) for (const j of shuffle(cands.slice())) { if (pool.length >= n) break; if (!pool.includes(j)) pool.push(j); }
   return pool;
 }
+// Hebrew options are shown with ONE sense each, so length and number of commas don't give the answer away
+const heShort = he => String(he || "").split(/[,;]/)[0].trim();
 function blankSentence(w){
   const re = new RegExp("\\b" + w.w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
   const m = w.ex.match(re);
@@ -783,7 +811,7 @@ function viewSession(){
       opts = S.opts.map((j, k) => {
         let cls = "opt" + (isEn ? " en" : "");
         if (show && j === i) cls += " good"; else if (show && j === S.pickd) cls += " bad";
-        return `<button class="${cls}" data-opt="${j}" ${answered?"disabled":""}><span class="k">${k+1}</span><span>${esc(isEn ? WORDS[j].w : WORDS[j].he)}</span></button>`;
+        return `<button class="${cls}" data-opt="${j}" ${answered?"disabled":""}><span class="k">${k+1}</span><span>${esc(isEn ? WORDS[j].w : heShort(WORDS[j].he))}</span></button>`;
       }).join("");
     }
     let fb = "";
@@ -908,7 +936,50 @@ function viewWords(){
 }
 
 /* ---------- events ---------- */
+/* ---------- tap any English word to see its translation ---------- */
+function twEnhance(){
+  if (SIM && !SIM.practice && !SIM.done) return;                       // full simulation = real exam conditions
+  const app = document.getElementById("app");
+  app.querySelectorAll(".sent, .lsent, .ptext p").forEach(el => {
+    if (el.dataset.tw2) return; el.dataset.tw2 = "1";
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {acceptNode: n =>
+      n.parentElement.closest("mark, button, .blank, .tw, .tw2") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT});
+    const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const n of nodes) {
+      if (!/[A-Za-z]/.test(n.nodeValue)) continue;
+      const frag = document.createDocumentFragment(); let last = 0;
+      n.nodeValue.replace(/[A-Za-z][A-Za-z'’-]*/g, (m, off) => {
+        if (off > last) frag.appendChild(document.createTextNode(n.nodeValue.slice(last, off)));
+        if (typeof STOP !== "undefined" && STOP.has(m.toLowerCase()) || m.length < 3) frag.appendChild(document.createTextNode(m));
+        else { const sp = document.createElement("span"); sp.className = "tw2"; sp.textContent = m; frag.appendChild(sp); }
+        last = off + m.length; return m; });
+      if (last < n.nodeValue.length) frag.appendChild(document.createTextNode(n.nodeValue.slice(last)));
+      n.parentNode.replaceChild(frag, n);
+    }
+  });
+}
+function twShow(word){
+  const i = lemmaLookup(word); let el = document.getElementById("twpop2");
+  if (!el) { el = document.createElement("div"); el.id = "twpop2"; document.body.appendChild(el); }
+  el.innerHTML = `<div class="tp-row"><b class="en">${esc(word)}</b><button class="speak" data-twsay="${esc(word)}" aria-label="השמע">${SPEAK_SVG}</button></div>
+    <div class="tp-he">${i >= 0 ? esc(WORDS[i].he) : `<span class="muted">אין את המילה הזאת במילון</span>`}</div>
+    ${i >= 0 && WORDS[i].w.toLowerCase() !== word.toLowerCase() ? `<div class="muted" style="font-size:13px">מהמילה <span class="en">${esc(WORDS[i].w)}</span></div>` : ""}
+    <div class="row">${i >= 0 ? `<button class="star ${P.mine[WORDS[i].w] ? "on" : ""}" data-twstar="${i}">${P.mine[WORDS[i].w] ? "★ במילים שלי" : "☆ הוסף למילים שלי"}</button>` : ""}<button class="btn small" data-twclose="1">סגור</button></div>`;
+  el.hidden = false;
+}
+document.addEventListener("click", e => {
+  const t = e.target.closest(".tw2, [data-twsay], [data-twstar], [data-twclose]");
+  const pop = document.getElementById("twpop2");
+  if (!t) { if (pop && !pop.hidden && !e.target.closest("#twpop2")) pop.hidden = true; return; }
+  e.stopPropagation(); e.preventDefault();
+  if (t.classList.contains("tw2")) twShow(t.textContent);
+  else if (t.dataset.twsay) speak(t.dataset.twsay);
+  else if (t.dataset.twstar) { const w = WORDS[+t.dataset.twstar].w; if (P.mine[w]) delete P.mine[w]; else P.mine[w] = 1; persist(); twShow(document.querySelector("#twpop2 .en").textContent); }
+  else if (t.dataset.twclose) pop.hidden = true;
+}, true);
 function afterRender(){
+  try { twEnhance(); } catch(e) {}
+  const pop0 = document.getElementById("twpop2"); if (pop0) pop0.hidden = true;
   const s = document.getElementById("search");
   if (s) s.addEventListener("input", e => { L.q = e.target.value; L.limit = 150; const pos = e.target.selectionStart; render(); const n = document.getElementById("search"); n.focus(); try { n.setSelectionRange(pos,pos); } catch(_) {} });
   const f = document.getElementById("typeform");
@@ -1005,13 +1076,18 @@ const blankHtml = t => esc(t).replace(/_{3,}/g, '<span class="blank">&nbsp;</spa
 let EQITEMS = null;                                   // one exam-level sentence-completion item per word in the bank
 // measured difficulty from word frequency (Zipf): the 1/2/3 split matches NITE's own practice test
 const zdiff = w => w.z == null ? w.lvl : w.z >= 4 ? 1 : w.z >= 3.2 ? 2 : 3;
-function eqItems(){ return EQITEMS || (EQITEMS = WORDS.filter(w => w.eq && (w.t == null || w.t <= 2)).map(w => ({id: "eq:" + w.w, diff: zdiff(w), q: w.eq.q, opts: w.eq.opts, a: 0, exp: w.eq.exp}))); }
+function eqItems(){
+  const all = EQITEMS || (EQITEMS = eqItemsAll());
+  return simPrefs.pool === "core" ? all.filter(it => it.core) : all;
+}
+function eqItemsAll(){ return WORDS.filter(w => w.eq && (w.t == null || w.t <= 2)).map(w => ({id: "eq:" + w.w, core: w.t === 1, diff: zdiff(w), q: w.eq.q, opts: w.eq.opts, a: 0, exp: w.eq.exp})); }
 function drawFrom(pool, diff, n){
   pool = pool.slice();
   pool.forEach(it => it._k = Math.abs((it.diff||2) - diff) * 10 + (seenQ[it.id] ? 5 : 0) + Math.random());
   return pool.sort((a,b) => a._k - b._k).slice(0, n);
 }
 function drawItems(type, diff, n){
+  if (type === "sc" && simPrefs.pool === "core" && eqItems().length) return drawFrom(eqItems(), diff, n);   // core words only
   if (type === "sc" && eqItems().length) {             // half from the checked question bank, half from the whole word list
     const a = drawFrom(EXAM.sc || [], diff, Math.ceil(n / 2));
     return shuffle(a.concat(drawFrom(eqItems(), diff, n - a.length)));
@@ -1173,6 +1249,8 @@ function viewSimHome(){
     <button class="btn primary big" data-sim="startFull">התחל סימולציה</button>
     <details><summary class="muted">מבנה הבחינה</summary><div style="overflow-x:auto"><table class="stbl"><thead><tr><th>פרק</th><th>סוג</th><th>שאלות</th><th>זמן</th></tr></thead><tbody>${rows.map(r => `<tr><td class="num">${r[0]}</td><td>${r[1]}</td><td class="num">${r[2]}</td><td class="num">${r[3]}</td></tr>`).join("")}</tbody></table></div></details>
   </section>
+  <div class="label">מאיזה מילים לתרגל</div>
+  <div class="seg" role="group"><button data-simpool="core" aria-pressed="${simPrefs.pool === "core"}">ליבת המבחן</button><button data-simpool="all" aria-pressed="${simPrefs.pool !== "core"}">כל אוצר המילים של הבחינה</button></div>
   <div class="label">תרגול לפי סוג שאלה · 10 שאלות · הסבר אחרי כל תשובה</div>
   <div class="rows">
     ${rowBtn("sc", "השלמת משפטים", "משפט עם מילה חסרה, 4 אפשרויות", 'data-simtype="sc"', cnt("sc"))}
@@ -1334,11 +1412,12 @@ function viewSimResults(){
 
 /* ---- events ---- */
 document.getElementById("app").addEventListener("click", e => {
-  const t = e.target.closest("[data-sim],[data-simopt],[data-simq],[data-simtype],[data-simvar],[data-simdiff],[data-simpace]");
+  const t = e.target.closest("[data-sim],[data-simopt],[data-simq],[data-simtype],[data-simvar],[data-simdiff],[data-simpace],[data-simpool]");
   if (!t) return;
   const d = t.dataset;
   if (d.simvar) { simPrefs.variant = d.simvar; saveSeen(); render(); return; }
   if (d.simdiff) { simPrefs.pdiff = +d.simdiff; saveSeen(); render(); return; }
+  if (d.simpool) { simPrefs.pool = d.simpool; saveSeen(); render(); return; }
   if (d.simpace !== undefined) { simPrefs.pace = +d.simpace; saveSeen(); render(); return; }
   if (d.simtype) { simStart("type", d.simtype); return; }
   if (d.simq !== undefined) { SIM.qi = +d.simq; SIM.confirmEnd = false; render(); return; }
@@ -1656,7 +1735,7 @@ function viewPlacement(){
     return `<div class="stack"><div class="shead"><button class="x" data-act2="back" aria-label="יציאה">×</button><div class="goal"><span style="width:${idx/total*100}%"></span></div><span class="num muted">${idx+1}/${total}</span></div>
       <div class="label">${c.kind === "exam" ? (SECNAME[c.t] + " · רמת " + DIFFNAME[c.diff]) : "אוצר מילים"}</div>
       <div class="card qcard" style="min-height:150px">${q}</div>
-      <div class="opts">${c.opts.map((o, k) => `<button class="opt ${c.kind==="exam"?"en":""} ${c.t==="rs"?"long":""}" data-plopt="${k}"><span class="k">${k+1}</span><span>${esc(c.kind === "exam" ? o : WORDS[o].he)}</span></button>`).join("")}</div>
+      <div class="opts">${c.opts.map((o, k) => `<button class="opt ${c.kind==="exam"?"en":""} ${c.t==="rs"?"long":""}" data-plopt="${k}"><span class="k">${k+1}</span><span>${esc(c.kind === "exam" ? o : heShort(WORDS[o].he))}</span></button>`).join("")}</div>
       <button class="btn small" data-plopt="-1">לא יודע</button></div>`;
   }
   const r = V.result, days = planDays(), tgt = newTarget();
@@ -2105,7 +2184,7 @@ function lsMakeQuestion(item){
     return {i, type, q: w.eq.q, opts: perm.map(k => w.eq.opts[k]), a: perm.indexOf(0), exp: w.eq.exp};
   }
   if (type === "he") { const o = shuffle([i, ...distractors(i, 3, "w")]); return {i, type, opts: o.map(j => WORDS[j].w), a: o.indexOf(i)}; }
-  const o = shuffle([i, ...distractors(i, 3, "he")]); return {i, type: "en", opts: o.map(j => WORDS[j].he), a: o.indexOf(i)};
+  const o = shuffle([i, ...distractors(i, 3, "he")]); return {i, type: "en", opts: o.map(j => heShort(WORDS[j].he)), a: o.indexOf(i)};
 }
 function lsNext(){
   if (!LSN.queue.length) {
