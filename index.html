@@ -597,8 +597,31 @@ function markSentence(w){
   if (!m) return esc(w.ex);
   return esc(w.ex.slice(0, m.index)) + "<mark>" + esc(m[0]) + "</mark>" + esc(w.ex.slice(m.index + m[0].length));
 }
+/* iPhone: (1) the silent switch mutes web speech unless the page's audio session is "playback";
+   (2) cancel() immediately followed by speak() is swallowed; (3) a home-screen app may need an explicit voice. */
+let EN_VOICE = null, audioUnlocked = false;
+function pickVoice(){
+  try { const vs = speechSynthesis.getVoices().filter(v => /^en[-_]US/i.test(v.lang));
+    EN_VOICE = vs.find(v => /samantha/i.test(v.name)) || vs.find(v => v.localService) || vs[0] || speechSynthesis.getVoices().find(v => /^en/i.test(v.lang)) || null; } catch(e) {}
+}
+try { pickVoice(); speechSynthesis.addEventListener("voiceschanged", pickVoice); } catch(e) {}
+function unlockAudio(){
+  if (audioUnlocked) return; audioUnlocked = true;
+  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch(e) {}
+  try { const a = new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA="); a.setAttribute("playsinline", ""); a.volume = 0; a.play().catch(() => {}); } catch(e) {}
+}
+document.addEventListener("touchend", unlockAudio, {once: true, capture: true});
+document.addEventListener("click", unlockAudio, {once: true, capture: true});
 function speak(text){
-  try { const u = new SpeechSynthesisUtterance(text); u.lang = "en-US"; u.rate = .9; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch(e) {}
+  unlockAudio();
+  try {
+    if (!("speechSynthesis" in window)) { flash("הדפדפן הזה לא תומך בהשמעה"); return; }
+    if (!EN_VOICE) pickVoice();
+    const u = new SpeechSynthesisUtterance(text); u.lang = "en-US"; u.rate = .9; u.volume = 1; if (EN_VOICE) u.voice = EN_VOICE;
+    speechSynthesis.resume();
+    if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); setTimeout(() => speechSynthesis.speak(u), 80); }
+    else speechSynthesis.speak(u);
+  } catch(e) {}
 }
 
 /* ---------- app shell ---------- */
@@ -1942,7 +1965,7 @@ function starBtn(i, withText){ const on = !!P.mine[WORDS[i].w]; return `<button 
 /* ---------- Hebrew speech ---------- */
 function speakHe(text){
   if (!P.set.he) return;
-  try { const u = new SpeechSynthesisUtterance(text); u.lang = "he-IL"; const v = speechSynthesis.getVoices().find(v => /^he|^iw/i.test(v.lang)); if (v) u.voice = v; else { flash("אין קול עברי בדפדפן הזה"); return; } speechSynthesis.cancel(); speechSynthesis.speak(u); } catch(e) {}
+  try { const u = new SpeechSynthesisUtterance(text); u.lang = "he-IL"; const v = speechSynthesis.getVoices().find(v => /^he|^iw/i.test(v.lang)); if (v) u.voice = v; else { flash("אין קול עברי בדפדפן הזה"); return; } unlockAudio(); speechSynthesis.resume(); if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); setTimeout(() => speechSynthesis.speak(u), 80); } else speechSynthesis.speak(u); } catch(e) {}
 }
 
 /* ---------- settings, accommodations, backup ---------- */
