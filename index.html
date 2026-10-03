@@ -305,6 +305,14 @@ body{font-size:17px;line-height:1.6}
 #twpop2 .tp-row{display:flex;justify-content:space-between;align-items:center}
 #twpop2 .tp-row b{font-size:20px}
 #twpop2 .tp-he{font-size:18px;font-weight:700}
+.clist{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.crow{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:8px;padding:11px 14px;border-top:1px solid var(--line);cursor:pointer;text-align:start}
+.crow:first-child{border-top:0}
+.crow .cw{font-weight:700;font-size:17px;direction:ltr;display:inline-flex;align-items:center}
+.crow .ch{text-align:end;font-size:15px}
+.crow .cmore{grid-column:1/-1;display:flex;flex-direction:column;gap:6px;padding-top:6px}
+.cdot{width:10px;height:10px;border-radius:50%;background:var(--line)}
+.cdot.g{background:var(--good)}.cdot.y{background:var(--b1,#e5b93a)}
 .say1{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--chip,rgba(127,127,127,.14));color:var(--ink,inherit);margin-inline-start:6px;vertical-align:middle;cursor:pointer;flex:none}
 .say1 svg{width:15px;height:15px}
 .say1:active{transform:scale(.92)}
@@ -519,6 +527,10 @@ function pick(src, size){
   else if (src === "conn") { ORDER.filter(i => WORDS[i].pos === "conj").sort((a,b) => (rec(WORDS[a].w)?rec(WORDS[a].w)[0]:0) - (rec(WORDS[b].w)?rec(WORDS[b].w)[0]:0)).forEach(add); }
   else if (src === "all") shuffle(ORDER.slice()).forEach(add);
   else if (src === "learnnew") ORDER.filter(i => !rec(WORDS[i].w) && !WORDS[i].b).forEach(add);   // new words by importance
+  else if (src.startsWith("cat:")) {                                 // practice one list from "my lists"
+    const ids = catList(src.slice(4));
+    (src === "cat:hard" ? ids : shuffle(ids)).forEach(add);
+  }
   else if (src === "verify") {                                       // yellow → green: words in learning, closest to green first
     ORDER.filter(i => { const r = rec(WORDS[i].w); return r && r[0] < MASTER; })
       .sort((a, b) => (rec(WORDS[b].w)[0] - rec(WORDS[a].w)[0]) || (rec(WORDS[b].w)[3] - rec(WORDS[a].w)[3])).forEach(add);
@@ -864,7 +876,7 @@ function viewSession(){
     if (show) { const dl = S.state === "right" ? readDelay() : 0;
       bar = `<button class="btn primary big ${dl ? "countdown" : ""}" style="--d:${dl}ms" data-act="next">המשך</button>`; }
   }
-  const title = S.src === "learnnew" ? "למידה · מילים חדשות" : S.src === "verify" ? "צהוב ← ירוק · תרגול ווידוא" : S.src === "learn" ? "סשן למידה" : (MODES.find(x => x[0] === S.mode) || [0,""])[1] + (S.mode === "mc" ? " · " + (MODES.find(x => x[0] === m) || [0,""])[1] : "");
+  const title = S.src.startsWith("cat:") ? "תרגול · " + catOf(S.src.slice(4))[1] : S.src === "learnnew" ? "למידה · מילים חדשות" : S.src === "verify" ? "צהוב ← ירוק · תרגול ווידוא" : S.src === "learn" ? "סשן למידה" : (MODES.find(x => x[0] === S.mode) || [0,""])[1] + (S.mode === "mc" ? " · " + (MODES.find(x => x[0] === m) || [0,""])[1] : "");
   return `<div class="stack">
     <div class="shead"><button class="x" data-act="quit" aria-label="יציאה">×</button><div class="goal"><span style="width:${pct}%"></span></div>
       <span class="num muted">${S.i+1}/${n}</span>${S.limit ? `<span class="timer" id="timer"></span>` : ""}</div>
@@ -2143,6 +2155,8 @@ function viewSub(){
     case "learn": return viewLearn();
     case "sort": return viewSort();
     case "sortpick": return viewSortPick();
+    case "lists": return viewLists();
+    case "catlist": return viewCatList();
   }
   return "";
 }
@@ -2190,6 +2204,8 @@ document.getElementById("app").addEventListener("click", e => {
     case "closepop": VIEW.pop = null; render(); break;
     case "journal": VIEW = {k: "journal"}; render(); break;
     case "sort": leaveSub(); VIEW = {k: "sortpick"}; render(); scrollTo(0,0); break;
+    case "cathide": VIEW.hide = !VIEW.hide; render(); break;
+    case "catmore": VIEW.limit += 200; render(); break;
     case "sortundo": sortUndo(); break;
     case "sorthe": VIEW.showHe = true; render(); break;
     case "sortreset": P.sortNo = {}; persist(); sortStart(VIEW.g); break;
@@ -2434,6 +2450,7 @@ function viewLearnTab(){
     </section>
     <div class="label">כלים נוספים</div>
     <div class="rows">
+      ${rowBtn("words", "הרשימות שלי", "כל קבוצה כרשימה עם תרגום: מה שלמדתי, ירוקות, צהובות, קשות, ליבה… ולתרגל כל רשימה", 'data-view="lists"')}
       ${rowBtn("sort", "מיון מהיר", "מכיר (ירוק) / בערך (צהוב) / לא מכיר. גם לשחזור מהיר של מה שלמדת", 'data-act2="sort"')}
       ${rowBtn("quiz", "שאלון לפי קבוצה", "שאלות אמריקאיות על ליבת המבחן / סבירות גבוהה / השאר", 'data-view="mcq"')}
       ${rowBtn("game", "משחקי מילים", "12 משחקים על המילים שעוד לא יושבות", 'data-view="games"')}
@@ -2455,6 +2472,57 @@ function viewMcq(){
 document.getElementById("app").addEventListener("click", e => {
   const t = e.target.closest("[data-lsstart],[data-learn]"); if (!t) return;
   learnStart(t.dataset.learn || "learnnew");
+});
+
+/* ---------- my lists: every category as a list (word · translation · speaker) + practice that list ---------- */
+const CATS = [
+  ["learned", "כל מה שלמדתי", "ירוקות וצהובות: כל מילה שכבר עבדת עליה", w => !!rec(w.w)],
+  ["known", "ירוקות · יודע", "3 נכונות ברצף, או שסימנת \"מכיר\"", w => { const r = rec(w.w); return !!r && r[0] >= MASTER; }],
+  ["yellow", "צהובות · בלמידה", "התחלת ללמוד, עוד לא ירוקות", w => { const r = rec(w.w); return !!r && r[0] < MASTER; }],
+  ["hard", "מילים שטעיתי בהן", "לפחות טעות אחת, הכי הרבה טעויות קודם", w => { const r = rec(w.w); return !!r && r[3] > 0; }],
+  ["mine", "המילים שלי", "מילים שהוספת בכוכב", w => !!P.mine[w.w]],
+  ["sortno", "סימנתי \"לא מכיר\"", "מהמיון המהיר", w => !!(P.sortNo && P.sortNo[w.w])],
+  ["core", "ליבת המבחן", "המילים הכי חשובות למבחן", w => w.t === 1],
+  ["likely", "סבירות גבוהה", "מופיעות בהרבה רשימות אמירנט", w => w.t === 2],
+  ["rest", "שאר המילים", "נדירות יותר", w => !w.b && (w.t == null || w.t >= 3)],
+  ["fresh", "עוד לא נלמדו", "אפורות: עדיין לא נגעת בהן, לפי סדר החשיבות", w => !rec(w.w) && !w.b],
+];
+const catOf = k => CATS.find(c => c[0] === k) || CATS[0];
+function catList(k){
+  const f = catOf(k)[3], ids = ORDER.filter(i => f(WORDS[i]));
+  if (k === "hard") ids.sort((a, b) => rec(WORDS[b].w)[3] - rec(WORDS[a].w)[3]);
+  return ids;
+}
+function viewLists(){
+  return `<div class="stack pop">${subHead("הרשימות שלי")}
+    <p class="muted" style="margin:0">כל קבוצה כרשימה: מילה, תרגום ורמקול. מכל רשימה אפשר לתרגל בדיוק את המילים שבה.</p>
+    <div class="rows">${CATS.map(c => { const n = WORDS.filter(c[3]).length;
+      return rowBtn(c[0] === "known" ? "learn" : c[0] === "hard" ? "quiz" : "words", c[1], c[2], `data-cat="${c[0]}"`, `<span class="num muted">${n.toLocaleString("he-IL")}</span>`); }).join("")}</div>
+  </div>`;
+}
+function statusDot(w){ const r = rec(w); return !r ? "n" : r[0] >= MASTER ? "g" : "y"; }
+function viewCatList(){
+  const V = VIEW, c = catOf(V.c), ids = catList(V.c), shown = ids.slice(0, V.limit);
+  return `<div class="stack pop">${subHead(c[1])}
+    <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><span class="muted num">${ids.length.toLocaleString("he-IL")} מילים</span>
+      <button class="btn small" data-act2="cathide" aria-pressed="${!!V.hide}">${V.hide ? "הצג תרגום" : "הסתר תרגום (לבחון את עצמי)"}</button></div>
+    ${ids.length ? `<button class="btn primary big" data-catpractice="${V.c}">לתרגל את המילים האלה (${Math.min(20, ids.length)} שאלות)</button>` : `<section class="card"><p class="muted" style="margin:0">אין עדיין מילים ברשימה הזאת.</p></section>`}
+    <div class="clist">${shown.map(i => { const w = WORDS[i], open = V.open === i, r = rec(w.w);
+      return `<div class="crow ${open ? "open" : ""}" data-crow="${i}" role="button" tabindex="0">
+        <span class="cdot ${statusDot(w.w)}"></span><span class="cw"><span class="en">${esc(w.w)}</span></span>
+        <span class="ch">${V.hide && !open ? `<span class="muted">· · ·</span>` : esc(w.he)}</span>
+        ${open ? `<div class="cmore"><div class="sent">${markSentence(w)}</div><div class="sente">${esc(w.exhe || "")}</div>
+          ${r ? `<div class="muted num" style="font-size:13px">נכונות ${r[2]} · טעויות ${r[3]}${r[0] >= MASTER ? " · ירוקה" : ` · ${Math.max(0, MASTER - r[0])} נכונות ברצף עד ירוק`}</div>` : ""}</div>` : ""}
+      </div>`; }).join("")}</div>
+    ${ids.length > V.limit ? `<button class="btn" data-act2="catmore">הצג עוד ${Math.min(200, ids.length - V.limit).toLocaleString("he-IL")}</button>` : ""}
+  </div>`;
+}
+document.getElementById("app").addEventListener("click", e => {
+  const t = e.target.closest("[data-cat],[data-crow],[data-catpractice]"); if (!t) return;
+  const d = t.dataset;
+  if (d.cat) { leaveSub(); VIEW = {k: "catlist", c: d.cat, limit: 200, open: -1, hide: false}; render(); scrollTo(0, 0); return; }
+  if (d.crow !== undefined) { if (e.target.closest(".tw2, .say1, .speak")) return; VIEW.open = VIEW.open === +d.crow ? -1 : +d.crow; render(); return; }
+  if (d.catpractice) { const k = d.catpractice; leaveSub(); start("mc", "cat:" + k); scrollTo(0, 0); }
 });
 
 /* ================= games.js — 12 word-practice games (Hebrew RTL UI) =================
