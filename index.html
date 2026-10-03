@@ -315,6 +315,10 @@ body{font-size:17px;line-height:1.6}
 .cdot.g{background:var(--good)}.cdot.y{background:var(--b1,#e5b93a)}
 .say1{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--chip,rgba(127,127,127,.14));color:var(--ink,inherit);margin-inline-start:6px;vertical-align:middle;cursor:pointer;flex:none}
 .say1 svg{width:15px;height:15px}
+.optwrap{display:flex;align-items:stretch;gap:8px}
+.optwrap > button{flex:1;min-width:0}
+.say1.big{width:52px;height:auto;min-height:50px;border-radius:12px;margin:0;border:1.5px solid var(--line);background:var(--surface)}
+.say1.big svg{width:20px;height:20px}
 .say1:active{transform:scale(.92)}
 .tw2{border-bottom:1px dotted var(--muted);cursor:pointer}
 .tw2:active{background:var(--mark)}
@@ -1029,7 +1033,12 @@ function sayEnhance(){
     if (t.nextElementSibling && t.nextElementSibling.classList.contains("say1")) return;
     const b = document.createElement("span"); b.className = "say1"; b.setAttribute("role", "button"); b.setAttribute("aria-label", "השמע");
     b.dataset.say1 = txt.replace(/\s*\(.*?\)\s*/g, " ").trim(); b.innerHTML = SPEAK_SVG;
-    t.insertAdjacentElement("afterend", b);
+    const ob = t.closest("button.opt, [data-opt], [data-eqopt], [data-simopt], [data-plopt]");
+    if (!ob && t.closest("button")) return;                             // never put a speaker inside another button
+    if (ob) {                                                           // answer options: speaker OUTSIDE the button, so a near-miss can't answer
+      const wrap = document.createElement("div"); wrap.className = "optwrap";
+      ob.parentNode.insertBefore(wrap, ob); wrap.appendChild(ob); b.classList.add("big"); wrap.appendChild(b);
+    } else t.insertAdjacentElement("afterend", b);
   });
 }
 let GLOSS = null;
