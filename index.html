@@ -612,7 +612,22 @@ function unlockAudio(){
 }
 document.addEventListener("touchend", unlockAudio, {once: true, capture: true});
 document.addEventListener("click", unlockAudio, {once: true, capture: true});
+/* Recorded audio per word (audio/<slug>.m4a, Samantha) plays reliably on iPhone, also from the home-screen app
+   and on silent; the built-in speech engine is only the fallback (offline, or text with no recording). */
+const AUD = (() => { try { const a = new Audio(); a.preload = "auto"; a.setAttribute("playsinline", ""); return a; } catch(e) { return null; } })();
+const audioSlug = t => String(t).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 function speak(text){
+  const slug = audioSlug(text);
+  if (AUD && slug && text.split(/\s+/).length <= 6 && location.protocol.startsWith("http") && !/claude\.ai|claudeusercontent/.test(location.hostname)) {
+    try { speechSynthesis.cancel(); } catch(e) {}
+    let fell = false; const fb = () => { if (!fell) { fell = true; ttsSpeak(text); } };
+    AUD.onerror = fb; AUD.pause(); AUD.src = "audio/" + slug + ".m4a"; AUD.currentTime = 0;
+    const p = AUD.play(); if (p && p.catch) p.catch(fb);
+    return;
+  }
+  ttsSpeak(text);
+}
+function ttsSpeak(text){
   unlockAudio();
   try {
     if (!("speechSynthesis" in window)) { flash("הדפדפן הזה לא תומך בהשמעה"); return; }
