@@ -305,6 +305,9 @@ body{font-size:17px;line-height:1.6}
 #twpop2 .tp-row{display:flex;justify-content:space-between;align-items:center}
 #twpop2 .tp-row b{font-size:20px}
 #twpop2 .tp-he{font-size:18px;font-weight:700}
+.say1{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--chip,rgba(127,127,127,.14));color:var(--ink,inherit);margin-inline-start:6px;vertical-align:middle;cursor:pointer;flex:none}
+.say1 svg{width:15px;height:15px}
+.say1:active{transform:scale(.92)}
 .tw2{border-bottom:1px dotted var(--muted);cursor:pointer}
 .tw2:active{background:var(--mark)}
 .movecard{border:1.5px dashed var(--accent);gap:6px}
@@ -998,6 +1001,25 @@ function twEnhance(){
     }
   });
 }
+/* ---------- a small speaker next to every English word shown (lists, options, results…) ---------- */
+function sayEnhance(){
+  if (SIM && !SIM.practice && !SIM.done) return;                       // full simulation = real exam conditions
+  const app = document.getElementById("app");
+  app.querySelectorAll(".en, .li .w, .word, [data-simopt] > span:last-child, [data-plopt] > span:last-child").forEach(el => {
+    if (el.dataset.say1done) return; el.dataset.say1done = "1";
+    let t = el;
+    if (el.matches("button")) t = el.querySelector("span:last-child") || el;          // option buttons: the text span
+    if (t.closest(".sent, .lsent, .ptext, .passage, #twpop2, .say1, mark, .gm-en")) return;
+    const txt = (t.textContent || "").trim();
+    if (!/^[A-Za-z][A-Za-z '’,.()-]*$/.test(txt) || txt.split(/\s+/).length > 6 || txt.length < 2) return;
+    const par = t.parentElement;
+    if (par && [...par.children].some(c => c !== t && c.classList.contains("speak"))) return;   // already has a speaker beside it
+    if (t.nextElementSibling && t.nextElementSibling.classList.contains("say1")) return;
+    const b = document.createElement("span"); b.className = "say1"; b.setAttribute("role", "button"); b.setAttribute("aria-label", "השמע");
+    b.dataset.say1 = txt.replace(/\s*\(.*?\)\s*/g, " ").trim(); b.innerHTML = SPEAK_SVG;
+    t.insertAdjacentElement("afterend", b);
+  });
+}
 let GLOSS = null;
 function twFind(word){                                 // bank (exact) → general dictionary → bank (by base form)
   if (!GLOSS) { try { GLOSS = JSON.parse(document.getElementById("d-gloss").textContent); } catch(e) { GLOSS = {}; } }
@@ -1015,6 +1037,8 @@ function twShow(word){
   el.hidden = false;
 }
 document.addEventListener("click", e => {
+  const s1 = e.target.closest("[data-say1]");
+  if (s1) { e.stopPropagation(); e.preventDefault(); speak(s1.dataset.say1); return; }
   const t = e.target.closest(".tw2, [data-twsay], [data-twstar], [data-twclose]");
   const pop = document.getElementById("twpop2");
   if (!t) { if (pop && !pop.hidden && !e.target.closest("#twpop2")) pop.hidden = true; return; }
@@ -1026,6 +1050,7 @@ document.addEventListener("click", e => {
 }, true);
 function afterRender(){
   try { twEnhance(); } catch(e) {}
+  try { sayEnhance(); } catch(e) {}
   const pop0 = document.getElementById("twpop2"); if (pop0) pop0.hidden = true;
   const s = document.getElementById("search");
   if (s) s.addEventListener("input", e => { L.q = e.target.value; L.limit = 150; const pos = e.target.selectionStart; render(); const n = document.getElementById("search"); n.focus(); try { n.setSelectionRange(pos,pos); } catch(_) {} });
