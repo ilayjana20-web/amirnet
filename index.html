@@ -843,7 +843,7 @@ function viewSession(){
         return `<button class="${cls}" data-eqopt="${k}" ${answered?"disabled":""}><span class="k">${k+1}</span><span>${esc(o)}</span></button>`;
       }).join("");
     } else {
-      q = m === "mc-en" ? `${pos}<div class="word">${esc(w.w)}</div><div class="sent ctx">${markSentence(w)}</div>`
+      q = m === "mc-en" ? `${pos}<div class="row" style="justify-content:center;gap:10px"><div class="word" data-act="speak" role="button" style="cursor:pointer">${esc(w.w)}</div>${spk}</div><div class="sent ctx">${markSentence(w)}</div>`
         : m === "mc-he" ? `${pos}<div class="hebig">${esc(w.he)}</div>`
         : `<div class="label">${m === "exam" ? "השלם את המשפט" : "איזו מילה משלימה את המשפט?"}</div><div class="sent">${!show ? blankSentence(w).html : markSentence(w)}</div>`;
       const isEn = m !== "mc-en";
@@ -2329,7 +2329,7 @@ function viewLearn(){
       <div class="actbar"><div class="row"><button class="btn big" style="flex:1" data-ls="know">כבר יודע</button><button class="btn primary big" style="flex:2" data-ls="introNext">${L.ii === g.length - 1 ? "בוא נתרגל" : "הבנתי, הבאה"}</button></div></div></div>`;
   }
   const q = L.q, w = WORDS[q.i], answered = L.state !== "ask";
-  const prompt = q.type === "en" ? `<div class="label">מה הפירוש?</div><div class="word">${esc(w.w)}</div><div class="sent ctx">${markSentence(w)}</div>`
+  const prompt = q.type === "en" ? `<div class="label">מה הפירוש?</div><div class="row" style="justify-content:center;gap:10px"><div class="word">${esc(w.w)}</div><button class="speak" data-sayw="${esc(w.w)}" aria-label="השמע">${SPEAK_SVG}</button></div><div class="sent ctx">${markSentence(w)}</div>`
     : q.type === "he" ? `<div class="label">איזו מילה באנגלית?</div><div class="hebig">${esc(w.he)}</div>`
     : `<div class="label">השלם את המשפט (כמו במבחן)</div><div class="sent">${answered ? esc(q.q).replace(/_{3,}/, `<mark>${esc(q.opts[q.a])}</mark>`) : blankHtml(q.q)}</div>`;
   const opts = q.opts.map((o, k) => { let c = "opt" + (q.type === "en" ? "" : " en"); if (answered && k === q.a) c += " good"; else if (answered && k === L.pick) c += " bad";
