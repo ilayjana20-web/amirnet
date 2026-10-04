@@ -315,6 +315,9 @@ body{font-size:17px;line-height:1.6}
 .cdot.g{background:var(--good)}.cdot.y{background:var(--b1,#e5b93a)}
 .say1{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--chip,rgba(127,127,127,.14));color:var(--ink,inherit);margin-inline-start:6px;vertical-align:middle;cursor:pointer;flex:none}
 .say1 svg{width:15px;height:15px}
+.ksothers{display:flex;flex-direction:column;gap:4px}
+.ksother{display:flex;gap:8px;align-items:center;font-size:16px;flex-wrap:wrap}
+.ksother .en{font-weight:700;direction:ltr}
 .optwrap{display:flex;align-items:stretch;gap:8px;direction:ltr}          /* English option first, its speaker to the right of the word */
 .optwrap > button{flex:1;min-width:0}
 .say1.big{width:52px;height:auto;min-height:50px;border-radius:12px;margin:0;border:1.5px solid var(--line);background:var(--surface)}
@@ -2618,8 +2621,10 @@ function ksTypes(i){
 }
 function ksBuild(i, avoid){
   const w = WORDS[i], k = kd(w.w) || {};
-  let types = ksTypes(i); if (types.length > 1 && avoid) types = types.filter(t => t !== avoid);
-  const type = types[Math.floor(Math.random() * types.length)];
+  const all = ksTypes(i), sc = all.filter(t => t !== "rs"), hasRs = all.includes("rs");
+  let fam = hasRs && sc.length ? (Math.random() < .5 ? "rs" : "sc") : hasRs ? "rs" : "sc";     // 50/50: restatement or sentence completion
+  if (avoid && hasRs && sc.length && fam === avoid && Math.random() < .7) fam = fam === "rs" ? "sc" : "rs";   // a missed word usually returns in the other format
+  const type = fam === "rs" ? "rs" : sc[Math.floor(Math.random() * sc.length)];
   if (type === "rs") { const r = k.rs, perm = shuffle([0,1,2,3]);
     return {i, type, q: r.q, opts: perm.map(j => r.opts[j]), a: perm.indexOf(r.a), ctx: r.ctx, exp: r.exp}; }
   const src = type === "sc2" ? {q: k.sc2.q, opts: k.sc2.opts, a: k.sc2.a, ctx: k.sc2.ctx, he: k.sc2.he}
@@ -2659,11 +2664,6 @@ function ksAnswer(k){
   try { sfx(ok); } catch(e) {}
   act().keep = (act().keep || 0) + 1; persist();
   render();
-  if (ok && (prefs.flow || "normal") !== "tap") {
-    const words = (it.q + " " + (it.he || it.exp || "")).split(/\s+/).length;
-    const ms = Math.max(3200, Math.min(7000, 1600 + words * 95)) * ((prefs.flow === "fast") ? .6 : 1);
-    ksTimer = setTimeout(() => { if (VIEW && VIEW.k === "keep" && KS && KS.state === "right") { ksNext(); render(); scrollTo(0, 0); } }, ms);
-  }
 }
 function ksMeaning(i, ctx){                            // only what is worth knowing: the meaning here, then the other important ones
   const w = WORDS[i], k = kd(w.w), main = k && k.main ? k.main : heShort(w.he), also = (k && k.also) || [];
@@ -2700,15 +2700,16 @@ function viewKeep(){
   let fb = "";
   if (answered) {
     const ok = K.state === "right";
-    const others = it.type === "sc" ? it.opts.filter((o, k) => k !== it.a).map(o => { const j = typeof lemmaLookup === "function" ? lemmaLookup(o) : -1; return j >= 0 ? `<span class="en">${esc(o)}</span> = ${esc(heMain(WORDS[j]))}` : ""; }).filter(Boolean) : [];
+    const others = it.type === "sc" ? it.opts.filter((o, k) => k !== it.a).map(o => { const f = twFind(o); const he = f.i !== undefined ? heMain(WORDS[f.i]) : f.he ? heShort(f.he) : "";
+      return `<div class="ksother"><span class="en">${esc(o)}</span><span>= ${he ? esc(he) : "—"}</span></div>`; }) : [];
     fb = `<div class="fb ${ok ? "ok" : "no"}"><b>${ok ? "נכון!" : "לא נכון"}</b>
       ${ksMeaning(it.i, it.ctx)}
       ${it.he ? `<div class="sente">${esc(it.he)}</div>` : ""}
       ${it.exp ? `<div class="sente">${esc(it.exp)}</div>` : ""}
-      ${others.length ? `<div class="muted" style="font-size:13px">שאר האפשרויות: ${others.join(" · ")}</div>` : ""}
+      ${others.length ? `<div class="label" style="margin-top:4px">שאר האפשרויות</div><div class="ksothers">${others.join("")}</div>` : ""}
       ${!ok ? `<div class="muted" style="font-size:13px">המילה תחזור בעוד כמה שאלות, בשאלה מסוג אחר.</div>` : ""}</div>`;
   }
-  const bar = answered ? `<div class="actbar"><button class="btn primary big" data-ks="next">${K.state === "right" && (prefs.flow || "normal") !== "tap" ? "הבא (ממשיך לבד)" : "הבא"}</button></div>` : "";
+  const bar = answered ? `<div class="actbar"><button class="btn primary big" data-ks="next">לשאלה הבאה</button></div>` : "";
   return `<div class="stack">${head}<div class="card qcard qmc pop"><div class="label">${label}</div>${qhtml}</div><div class="opts">${opts}</div>${fb}${bar}</div>`;
 }
 document.getElementById("app").addEventListener("click", e => {
