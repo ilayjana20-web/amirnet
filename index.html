@@ -315,7 +315,7 @@ body{font-size:17px;line-height:1.6}
 .cdot.g{background:var(--good)}.cdot.y{background:var(--b1,#e5b93a)}
 .say1{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--chip,rgba(127,127,127,.14));color:var(--ink,inherit);margin-inline-start:6px;vertical-align:middle;cursor:pointer;flex:none}
 .say1 svg{width:15px;height:15px}
-.optwrap{display:flex;align-items:stretch;gap:8px}
+.optwrap{display:flex;align-items:stretch;gap:8px;direction:ltr}          /* English option first, its speaker to the right of the word */
 .optwrap > button{flex:1;min-width:0}
 .say1.big{width:52px;height:auto;min-height:50px;border-radius:12px;margin:0;border:1.5px solid var(--line);background:var(--surface)}
 .say1.big svg{width:20px;height:20px}
@@ -520,6 +520,7 @@ function grade(i, g, self){
     else if (r[0] >= MASTER) r[4] = m;
     r[1] = r[0] >= MASTER ? t + NEVER : t + 1;                                         // next review tomorrow; known words rest
   }
+  r[5] = nowMin();                                                                    // last time this word was asked (retention order)
   P.w[w] = r;
   const D = dayStat(); if (isNew) D.n++; D.a++; if (g > 0) D.c++;
   persist();
@@ -556,6 +557,7 @@ function pick(src, size){
     mixed.forEach(add);
     ORDER.filter(i => R(i) && R(i)[0] < MASTER).forEach(add);        // no new words left: fill with words in learning
   }
+  else if (src === "keep") keepOrder().forEach(add);                  // retention: least recently seen learned words first
   else if (src.startsWith("cat:")) {                                 // practice one list from "my lists"
     const ids = catList(src.slice(4));
     (src === "cat:hard" ? ids : shuffle(ids)).forEach(add);
@@ -906,7 +908,7 @@ function viewSession(){
     if (show) { const dl = S.state === "right" ? readDelay() : 0;
       bar = `<button class="btn primary big ${dl ? "countdown" : ""}" style="--d:${dl}ms" data-act="next">המשך</button>`; }
   }
-  const title = S.src.startsWith("cat:") ? "תרגול · " + catOf(S.src.slice(4))[1] : S.src === "learnnew" ? "למידה · מילים חדשות" : S.src === "verify" ? "צהוב ← ירוק · תרגול ווידוא" : S.src === "learn" ? "סשן למידה" : (MODES.find(x => x[0] === S.mode) || [0,""])[1] + (S.mode === "mc" ? " · " + (MODES.find(x => x[0] === m) || [0,""])[1] : "");
+  const title = S.src === "keep" ? "שימור אוצר המילים · " + (KEEP.scope === "core" ? "ליבת המבחן" : "כל מה שלמדתי") : S.src.startsWith("cat:") ? "תרגול · " + catOf(S.src.slice(4))[1] : S.src === "learnnew" ? "למידה · מילים חדשות" : S.src === "verify" ? "צהוב ← ירוק · תרגול ווידוא" : S.src === "learn" ? "סשן למידה" : (MODES.find(x => x[0] === S.mode) || [0,""])[1] + (S.mode === "mc" ? " · " + (MODES.find(x => x[0] === m) || [0,""])[1] : "");
   return `<div class="stack">
     <div class="shead"><button class="x" data-act="quit" aria-label="יציאה">×</button><div class="goal"><span style="width:${pct}%"></span></div>
       <span class="num muted">${S.i+1}/${n}</span>${S.limit ? `<span class="timer" id="timer"></span>` : ""}</div>
@@ -1360,7 +1362,8 @@ function viewSimHome(){
   const rows = [["1","השלמת משפטים","4","4 דק׳"],["2","השלמת משפטים","4","4 דק׳"],["3","קטע קריאה עם שאלות","5","15 דק׳"],["4","ניסוח מחדש","3","6 דק׳"],["5","ניסוח מחדש","3","6 דק׳"],["6","השלמת משפטים","4","4 דק׳"],["7–8","2 פרקים ניסיוניים או מטלת כתיבה","4–5 / 1","3–12 דק׳"]];
   const cnt = t => `<span class="num muted">${nBank(t).toLocaleString("he-IL")}</span>`;
   return `<div class="stack pop">
-  ${pageHead("תרגול", "רק שאלות בפורמט של אמירנט וברמה שלו. מילים חדשות לומדים בלשונית למידה.")}
+  ${pageHead("תרגול", "חזרה על אוצר המילים שלמדת, ושאלות בפורמט של אמירנט וברמה שלו.")}
+  ${keepCard()}
   <section class="card nextcard">
     <div class="label">מבחן מלא</div>
     <h2 class="h2">סימולציה</h2>
@@ -2558,6 +2561,44 @@ document.getElementById("app").addEventListener("click", e => {
   if (d.cat) { leaveSub(); VIEW = {k: "catlist", c: d.cat, limit: 200, open: -1, hide: false}; render(); scrollTo(0, 0); return; }
   if (d.crow !== undefined) { if (e.target.closest(".tw2, .say1, .speak")) return; VIEW.open = VIEW.open === +d.crow ? -1 : +d.crow; render(); return; }
   if (d.catpractice) { const k = d.catpractice; leaveSub(); start("mc", "cat:" + k); scrollTo(0, 0); }
+});
+
+/* ---------- vocabulary retention: cycle through every word already learned, least recently seen first ---------- */
+const KEEP = (() => { try { return JSON.parse(localStorage.getItem("amirnet-keep") || "{}"); } catch(e) { return {}; } })();
+KEEP.scope = KEEP.scope || "core";
+const saveKeep = () => { try { localStorage.setItem("amirnet-keep", JSON.stringify(KEEP)); } catch(e) {} };
+const lastSeen = r => r[5] || r[4] || 0;
+function keepPool(){
+  const core = KEEP.scope === "core";
+  return ORDER.filter(i => { const w = WORDS[i], r = rec(w.w); return r && (!core || w.t === 1); });
+}
+function keepOrder(){                                  // most at risk first: not seen for longest, yellow before green, mistakes count
+  const score = i => { const r = rec(WORDS[i].w); return lastSeen(r) - (r[0] < MASTER ? 180 : 0) - Math.min(5, r[3]) * 60; };
+  return keepPool().sort((a, b) => score(a) - score(b));
+}
+function keepStats(){
+  const pool = keepPool(), m = nowMin(), day = 24 * 60;
+  const fresh = pool.filter(i => m - lastSeen(rec(WORDS[i].w)) < day).length;
+  const green = pool.filter(i => rec(WORDS[i].w)[0] >= MASTER).length;
+  return {n: pool.length, fresh, green, stale: pool.length - fresh};
+}
+function keepCard(){
+  const st = keepStats(), core = KEEP.scope === "core", pct = st.n ? Math.round(st.fresh / st.n * 100) : 0;
+  return `<section class="card nextcard keepcard">
+    <div class="label">שימור אוצר המילים</div>
+    <h2 class="h2">חזרה על ${core ? "ליבת המבחן" : "כל מה שלמדתי"}</h2>
+    <div class="seg" role="group"><button data-keepscope="core" aria-pressed="${core}">ליבת המבחן</button><button data-keepscope="all" aria-pressed="${!core}">כל מה שלמדתי</button></div>
+    <p class="lead">עובר בסבבים על <b>כל</b> המילים שכבר למדת${core ? " מהליבה" : ""}. קודם מגיעות המילים שהכי הרבה זמן לא ראית, הצהובות ואלה שטעית בהן. כך אף מילה לא נשכחת.</p>
+    ${st.n ? `<div class="pbar" title="חזרת עליהן ב-24 השעות האחרונות"><span class="k" style="width:${pct}%"></span></div>
+      <div class="legend"><span><b class="num">${st.n.toLocaleString("he-IL")}</b> מילים למדת</span><span><b class="num">${st.fresh.toLocaleString("he-IL")}</b> חזרת היום</span><span><b class="num">${st.stale.toLocaleString("he-IL")}</b> מחכות לחזרה</span></div>
+      <button class="btn primary big" data-keepgo="1">לחזור על 20 מילים</button>`
+    : `<p class="muted" style="margin:0">עוד לא למדת מילים ${core ? "מהליבה" : ""}. התחל בלשונית למידה, והן יופיעו כאן לחזרה.</p>`}
+  </section>`;
+}
+document.getElementById("app").addEventListener("click", e => {
+  const t = e.target.closest("[data-keepscope],[data-keepgo]"); if (!t) return;
+  if (t.dataset.keepscope) { KEEP.scope = t.dataset.keepscope; saveKeep(); render(); return; }
+  if (t.dataset.keepgo) { start("mc", "keep"); scrollTo(0, 0); }
 });
 
 /* ================= games.js — 12 word-practice games (Hebrew RTL UI) =================
