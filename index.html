@@ -561,7 +561,10 @@ function pick(src, size){
     mixed.forEach(add);
     ORDER.filter(i => R(i) && R(i)[0] < MASTER).forEach(add);        // no new words left: fill with words in learning
   }
-  else if (src === "keep") keepOrder().forEach(add);                  // retention: least recently seen learned words first
+  else if (src === "keep") keepOrder().forEach(add);
+  else if (src.startsWith("crev:")) {                                 // flashcard review of a list: least recently seen first
+    catList(src.slice(5)).sort((a, b) => lastSeen(rec(WORDS[a].w) || [0]) - lastSeen(rec(WORDS[b].w) || [0])).forEach(add);
+  }                  // retention: least recently seen learned words first
   else if (src.startsWith("cat:")) {                                 // practice one list from "my lists"
     const ids = catList(src.slice(4));
     (src === "cat:hard" ? ids : shuffle(ids)).forEach(add);
@@ -816,9 +819,9 @@ function viewPractice(){
 }
 
 /* ---------- session ---------- */
-function start(mode, src){
+function start(mode, src, sizeOverride){
   src = src || prefs.src;
-  const size = mode === "exam" ? 20 : prefs.size;
+  const size = mode === "exam" ? 20 : sizeOverride || (String(src).startsWith("crev:") ? (KEEP.csize || 20) : prefs.size);
   let items = mode === "exam" ? examPick(size) : pick(src, size);
   if (mode === "exam" || mode === "cloze") items = items.filter(i => WORDS[i].eq || blankSentence(WORDS[i]).ok);
   if (!items.length) { S = null; TAB = "learn"; render(); flash("אין מילים במקור הזה כרגע. נסה מקור אחר."); return; }
@@ -912,7 +915,7 @@ function viewSession(){
     if (show) { const dl = S.state === "right" ? readDelay() : 0;
       bar = `<button class="btn primary big ${dl ? "countdown" : ""}" style="--d:${dl}ms" data-act="next">המשך</button>`; }
   }
-  const title = S.src === "keep" ? "שימור אוצר המילים · " + (KEEP.scope === "core" ? "ליבת המבחן" : "כל מה שלמדתי") : S.src.startsWith("cat:") ? "תרגול · " + catOf(S.src.slice(4))[1] : S.src === "learnnew" ? "למידה · מילים חדשות" : S.src === "verify" ? "צהוב ← ירוק · תרגול ווידוא" : S.src === "learn" ? "סשן למידה" : (MODES.find(x => x[0] === S.mode) || [0,""])[1] + (S.mode === "mc" ? " · " + (MODES.find(x => x[0] === m) || [0,""])[1] : "");
+  const title = String(S.src).startsWith("crev:") ? "כרטיסיות חזרה · " + catOf(S.src.slice(5))[1] : S.src === "keep" ? "שימור אוצר המילים · " + (KEEP.scope === "core" ? "ליבת המבחן" : "כל מה שלמדתי") : S.src.startsWith("cat:") ? "תרגול · " + catOf(S.src.slice(4))[1] : S.src === "learnnew" ? "למידה · מילים חדשות" : S.src === "verify" ? "צהוב ← ירוק · תרגול ווידוא" : S.src === "learn" ? "סשן למידה" : (MODES.find(x => x[0] === S.mode) || [0,""])[1] + (S.mode === "mc" ? " · " + (MODES.find(x => x[0] === m) || [0,""])[1] : "");
   return `<div class="stack">
     <div class="shead"><button class="x" data-act="quit" aria-label="יציאה">×</button><div class="goal"><span style="width:${pct}%"></span></div>
       <span class="num muted">${S.i+1}/${n}</span>${S.limit ? `<span class="timer" id="timer"></span>` : ""}</div>
@@ -1126,7 +1129,7 @@ document.getElementById("app").addEventListener("click", e => {
   if (d.say) { e.stopPropagation(); speak(WORDS[+d.say].w); return; }
   if (d.relearn !== undefined) { e.stopPropagation(); const r = P.w[WORDS[+d.relearn].w]; r[0] = 1; r[1] = today(); persist(); render(); flash("המילה חזרה לתרגול", true); return; }
   if (d.li !== undefined) { L.open = L.open === +d.li ? -1 : +d.li; render(); return; }
-  if (d.grade !== undefined) { const g = +d.grade; sfx(g > 0); const i = S.items[S.i]; S.answered++; if (g === 2) S.right++; S.log.push([i, g === 2]); grade(i, g, true);
+  if (d.grade !== undefined) { const g = +d.grade; sfx(g > 0); const i = S.items[S.i]; S.answered++; if (g === 2) S.right++; S.log.push([i, g === 2]); grade(i, g, !String(S.src).startsWith("crev:"));
     if (g < 2 && (S.requeued[i]||0) < (g === 0 ? 3 : 1)) { S.requeued[i] = (S.requeued[i]||0)+1; S.items.splice(Math.min(S.items.length, S.i + (g === 0 ? 3 : 7)), 0, i); }
     next(); return; }
   if (d.opt !== undefined || d.eqopt !== undefined) { if (S.state !== "ask") return;
@@ -2200,6 +2203,7 @@ function viewSub(){
     case "sortpick": return viewSortPick();
     case "lists": return viewLists();
     case "keep": return viewKeep();
+    case "crevpick": return viewCrevPick();
     case "catlist": return viewCatList();
   }
   return "";
@@ -2494,6 +2498,7 @@ function viewLearnTab(){
     </section>
     <div class="label">כלים נוספים</div>
     <div class="rows">
+      ${rowBtn("cards", "כרטיסיות חזרה", "לעבור בכרטיסיות על המילים שכבר למדת, הכי מזמן קודם. בוחרים קבוצה וכמות", 'data-view="crevpick"')}
       ${rowBtn("words", "הרשימות שלי", "כל קבוצה כרשימה עם תרגום: מה שלמדתי, ירוקות, צהובות, קשות, ליבה… ולתרגל כל רשימה", 'data-view="lists"')}
       ${rowBtn("sort", "מיון מהיר", "מכיר (ירוק) / בערך (צהוב) / לא מכיר. גם לשחזור מהיר של מה שלמדת", 'data-act2="sort"')}
       ${rowBtn("quiz", "שאלון לפי קבוצה", "שאלות אמריקאיות על ליבת המבחן / סבירות גבוהה / השאר", 'data-view="mcq"')}
@@ -2526,6 +2531,7 @@ const CATS = [
   ["hard", "מילים שטעיתי בהן", "לפחות טעות אחת, הכי הרבה טעויות קודם", w => { const r = rec(w.w); return !!r && r[3] > 0; }],
   ["mine", "המילים שלי", "מילים שהוספת בכוכב", w => !!P.mine[w.w]],
   ["sortno", "סימנתי \"לא מכיר\"", "מהמיון המהיר", w => !!(P.sortNo && P.sortNo[w.w])],
+  ["corelearned", "ליבה שלמדתי", "מילות ליבת המבחן שכבר עבדת עליהן", w => w.t === 1 && !!rec(w.w)],
   ["core", "ליבת המבחן", "המילים הכי חשובות למבחן", w => w.t === 1],
   ["likely", "סבירות גבוהה", "מופיעות בהרבה רשימות אמירנט", w => w.t === 2],
   ["rest", "שאר המילים", "נדירות יותר", w => !w.b && (w.t == null || w.t >= 3)],
@@ -2550,7 +2556,7 @@ function viewCatList(){
   return `<div class="stack pop">${subHead(c[1])}
     <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><span class="muted num">${ids.length.toLocaleString("he-IL")} מילים</span>
       <button class="btn small" data-act2="cathide" aria-pressed="${!!V.hide}">${V.hide ? "הצג תרגום" : "הסתר תרגום (לבחון את עצמי)"}</button></div>
-    ${ids.length ? `<button class="btn primary big" data-catpractice="${V.c}">לתרגל את המילים האלה (${Math.min(20, ids.length)} שאלות)</button>` : `<section class="card"><p class="muted" style="margin:0">אין עדיין מילים ברשימה הזאת.</p></section>`}
+    ${ids.length ? `<div class="row" style="gap:8px"><button class="btn primary big" style="flex:1" data-catpractice="${V.c}">לתרגל (שאלות)</button><button class="btn big" style="flex:1" data-crevgo="${V.c}">לעבור בכרטיסיות</button></div>` : `<section class="card"><p class="muted" style="margin:0">אין עדיין מילים ברשימה הזאת.</p></section>`}
     <div class="clist">${shown.map(i => { const w = WORDS[i], open = V.open === i, r = rec(w.w);
       return `<div class="crow ${open ? "open" : ""}" data-crow="${i}" role="button" tabindex="0">
         <span class="cdot ${statusDot(w.w)}"></span><span class="cw"><span class="en">${esc(w.w)}</span></span>
@@ -2729,6 +2735,29 @@ function heMore(w, where){
   const here = heHere(w, where), extra = [...String(k.main || "").split(/[,،]/).map(s => s.trim()).filter(s => s && !here.includes(s)), ...(k.also || [])].slice(0, 3);
   return extra.length ? `<div class="muted" style="font-size:14px">עוד משמעויות חשובות: ${extra.map(esc).join(" · ")}</div>` : "";
 }
+
+/* ---------- flashcard review of words already learned ---------- */
+KEEP.csize = KEEP.csize || 20; KEEP.cgroup = KEEP.cgroup || "learned";
+function viewCrevPick(){
+  const groups = ["learned", "corelearned", "known", "yellow", "hard", "mine"].map(catOf);
+  const n = WORDS.filter(catOf(KEEP.cgroup)[3]).length;
+  return `<div class="stack pop">${subHead("כרטיסיות חזרה")}
+    <p class="muted" style="margin:0">כמו כרטיסיות רגילות: רואים את המילה במשפט, חושבים, הופכים ומסמנים. המילים שהכי הרבה זמן לא ראית מגיעות קודם, כך שבכל סבב עוברים על מילים אחרות.</p>
+    <div class="label">על אילו מילים</div>
+    <div class="chips">${groups.map(c => `<button class="chip" data-crevgroup="${c[0]}" aria-pressed="${KEEP.cgroup === c[0]}">${c[1]} · ${WORDS.filter(c[3]).length.toLocaleString("he-IL")}</button>`).join("")}</div>
+    <div class="label">כמה כרטיסים בסבב</div>
+    <div class="seg" role="group">${[[20, "20"], [50, "50"], [100000, "כולן"]].map(s => `<button data-crevsize="${s[0]}" aria-pressed="${KEEP.csize === s[0]}">${s[1]}</button>`).join("")}</div>
+    <section class="card stack"><div class="muted" style="font-size:14px">ידעתי = צעד אחד לכיוון ירוק (לא ירוק מיד) · בקושי = יחזור מחר · לא ידעתי = חוזר להתחלה ויחזור עוד בסבב</div></section>
+    <button class="btn primary big" data-crevgo="${KEEP.cgroup}" ${n ? "" : "disabled"}>להתחיל (${Math.min(n, KEEP.csize).toLocaleString("he-IL")} כרטיסים)</button>
+  </div>`;
+}
+document.getElementById("app").addEventListener("click", e => {
+  const t = e.target.closest("[data-crevgroup],[data-crevsize],[data-crevgo]"); if (!t) return;
+  const d = t.dataset;
+  if (d.crevgroup) { KEEP.cgroup = d.crevgroup; saveKeep(); render(); return; }
+  if (d.crevsize) { KEEP.csize = +d.crevsize; saveKeep(); render(); return; }
+  if (d.crevgo) { leaveSub(); start("cards", "crev:" + d.crevgo); scrollTo(0, 0); }
+});
 
 /* ================= games.js — 12 word-practice games (Hebrew RTL UI) =================
    Host provides: WORDS, esc, shuffle, blankSentence. We define: GAMES, gameStart, gameStop.
