@@ -403,7 +403,9 @@ details>summary{cursor:pointer}
 const WORDS = JSON.parse(document.getElementById("d-words").textContent);
 const POSHE = {n:"שם עצם",v:"פועל",adj:"שם תואר",adv:"תואר הפועל",conj:"מילת קישור",prep:"מילת יחס",phr:"ביטוי / פועל מורכב"};
 const INT = [0,1,1,2,4,7];              // days until next review per box
-const MASTER = 4;                        // box >= 4 counts as "יודע"
+const MASTER = 6;                        // box >= 6 counts as "יודע": 5 correct in a row (new → 2 … 6), each in a different round
+const STEP_GAP = 20;                     // minutes: a word moves up at most one step per round, so it can't turn green in one session
+const nowMin = () => Math.floor(Date.now() / 60000);
 const SPEAK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -425,6 +427,7 @@ const LS = "amirnet-progress-v1";
 let P = blank();
 function blank(){ return {start: today(), w: {}, d: {}, u: 0}; }
 try { const s = JSON.parse(localStorage.getItem(LS) || "null"); if (s && s.w) P = Object.assign(blank(), s); } catch(e) {}
+if (P.boxv !== 2) { P = migrateBoxes(Object.keys(P.w).length ? P : Object.assign(P, {boxv: 2})); try { localStorage.setItem(LS, JSON.stringify(P)); } catch(e) {} }
 
 let cloudRef = null, saveTimer = null;
 let lsTimer = null;
@@ -441,7 +444,8 @@ async function pushCloud(){
   catch(e) { setSync(false, "נשמר במכשיר"); }
 }
 function merge(a, b){               // keep, per word, the record with more answers
-  const out = {start: Math.min(a.start, b.start), w: Object.assign({}, a.w), d: Object.assign({}, a.d), u: Math.max(a.u||0, b.u||0)};
+  a = migrateBoxes(a); b = migrateBoxes(b);                      // an old backup code / cloud copy still uses the 4/5 boxes
+  const out = {boxv: 2, start: Math.min(a.start, b.start), w: Object.assign({}, a.w), d: Object.assign({}, a.d), u: Math.max(a.u||0, b.u||0)};
   for (const [k,r] of Object.entries(b.w||{})) { const m = out.w[k]; if (!m || (r[2]+r[3]) > (m[2]+m[3])) out.w[k] = r; }
   for (const [k,r] of Object.entries(b.d||{})) { const m = out.d[k]; if (!m || r.a > m.a) out.d[k] = r; }
   for (const k of ["mine","best","numbered","pace","readDone","sortNo"]) out[k] = Object.assign({}, a[k]||{}, b[k]||{});
@@ -492,10 +496,16 @@ function newTarget(){
   const left = relevantFresh + done;                    // relevant new words that were left this morning
   return Math.min(400, Math.ceil(left / Math.max(1, Math.max(1, days - 2) - Math.max(1, pd) + 1)));   // realistic daily cap; level-1 words come first
 }
-function boxes(w){ const r = rec(w); const b = r ? r[0] : 0; return '<span class="boxes" title="שלב '+b+' מתוך 5">' + [1,2,3,4,5].map(i => '<i style="background:'+(i<=b?'var(--b'+b+')':'var(--b0)')+'"></i>').join("") + '</span>'; }
+function boxes(w){ const r = rec(w); const b = r ? r[0] : 0, k = b >= MASTER ? 5 : Math.max(0, b - 1); return '<span class="boxes" title="'+k+' מתוך 5 נכונות ברצף">' + [1,2,3,4,5].map(i => '<i style="background:'+(i<=k?(b >= MASTER ? 'var(--good)' : 'var(--b1)'):'var(--b0)')+'"></i>').join("") + '</span>'; }
 
 /* ---------- grading (Leitner) ---------- */
-const KNOWN = 5, NEVER = 9999;                           // box 5 = "known": never scheduled again
+const KNOWN = 7, NEVER = 9999;                           // box 7 = marked "known" ("ידעתי" / sort "מכיר"): never scheduled again
+/* 2026-10-04: green used to be box 4 (3 correct) and "known" box 5. Old greens keep their green: 4 → 6, 5 → 7. */
+function migrateBoxes(x){
+  if (!x || !x.w || x.boxv >= 2) return x;
+  const w = {}; for (const [k, r] of Object.entries(x.w)) { const n = r.slice(); if (n[0] === 5) n[0] = 7; else if (n[0] === 4) n[0] = 6; w[k] = n; }
+  return Object.assign({}, x, {w, boxv: 2});
+}
 // g: 0 = didn't know, 1 = barely, 2 = knew. self = the student's own verdict on a flashcard ("ידעתי" means known, done).
 function grade(i, g, self){
   const w = WORDS[i].w, t = today(), isNew = !P.w[w];
@@ -503,8 +513,11 @@ function grade(i, g, self){
   if (g === 0) { r[0] = 1; r[1] = t; r[3]++; }                                   // again today
   else if (g === 1) { r[0] = Math.max(1, Math.min(r[0], 2)); r[1] = t + 1; r[2]++; }  // again tomorrow
   else if (self) { r[0] = KNOWN; r[1] = t + NEVER; r[2]++; }                      // "ידעתי": known, no more repeats
-  else {                                                                              // quiz: known only after 3 correct in a row
-    r[0] = isNew ? 2 : Math.min(KNOWN, Math.max(1, r[0]) + 1); r[2]++;
+  else {                                                                              // quiz: green only after 5 correct in a row, one per round
+    const m = nowMin(); r[2]++;
+    if (isNew) { r[0] = 2; r[4] = m; }
+    else if (r[0] < MASTER && (!r[4] || m - r[4] >= STEP_GAP)) { r[0] = Math.max(1, r[0]) + 1; r[4] = m; }
+    else if (r[0] >= MASTER) r[4] = m;
     r[1] = r[0] >= MASTER ? t + NEVER : t + 1;                                         // next review tomorrow; known words rest
   }
   P.w[w] = r;
@@ -530,14 +543,27 @@ function pick(src, size){
   else if (src === "hard") hard.forEach(add);
   else if (src === "conn") { ORDER.filter(i => WORDS[i].pos === "conj").sort((a,b) => (rec(WORDS[a].w)?rec(WORDS[a].w)[0]:0) - (rec(WORDS[b].w)?rec(WORDS[b].w)[0]:0)).forEach(add); }
   else if (src === "all") shuffle(ORDER.slice()).forEach(add);
-  else if (src === "learnnew") ORDER.filter(i => !rec(WORDS[i].w) && !WORDS[i].b).forEach(add);   // new words by importance
+  else if (src === "learnnew") {                                     // new words by importance, mixed with words learned before
+    const m = nowMin(), R = i => rec(WORDS[i].w);
+    const yel = shuffle(ORDER.filter(i => { const r = R(i); return r && r[0] < MASTER && (!r[4] || m - r[4] >= STEP_GAP); })).slice(0, 3);
+    const grnAll = ORDER.filter(i => { const r = R(i); return r && r[0] >= MASTER; }).sort((a, b) => (R(a)[4] || 0) - (R(b)[4] || 0));
+    const grn = shuffle(grnAll.slice(0, 40)).slice(0, 6 - yel.length);
+    const old = shuffle([...yel, ...grn]);
+    const fresh = ORDER.filter(i => !R(i) && !WORDS[i].b).slice(0, size - old.length);
+    const mixed = []; let o = 0;
+    fresh.forEach((i, k) => { mixed.push(i); if (k % 3 === 2 && o < old.length) mixed.push(old[o++]); });
+    while (o < old.length) mixed.push(old[o++]);
+    mixed.forEach(add);
+    ORDER.filter(i => R(i) && R(i)[0] < MASTER).forEach(add);        // no new words left: fill with words in learning
+  }
   else if (src.startsWith("cat:")) {                                 // practice one list from "my lists"
     const ids = catList(src.slice(4));
     (src === "cat:hard" ? ids : shuffle(ids)).forEach(add);
   }
   else if (src === "verify") {                                       // yellow → green: words in learning, closest to green first
+    const m = nowMin(), ready = r => !r[4] || m - r[4] >= STEP_GAP;      // words that can move up now come first
     ORDER.filter(i => { const r = rec(WORDS[i].w); return r && r[0] < MASTER; })
-      .sort((a, b) => (rec(WORDS[b].w)[0] - rec(WORDS[a].w)[0]) || (rec(WORDS[b].w)[3] - rec(WORDS[a].w)[3])).forEach(add);
+      .sort((a, b) => { const A = rec(WORDS[a].w), B = rec(WORDS[b].w); return (ready(B) - ready(A)) || (B[0] - A[0]) || (B[3] - A[3]); }).forEach(add);
   }
   else if (src === "learn") {
     const rev = ORDER.filter(i => { const r = rec(WORDS[i].w); return r && r[0] < MASTER && r[1] <= t; })
@@ -938,7 +964,7 @@ function viewLearnResults(){
   const nowKnown = ids.filter(i => { const r = rec(WORDS[i].w); return r && r[0] >= MASTER; });
   const wrong = ids.filter(i => S.log.some(x => x[0] === i && !x[1]));
   const row = i => { const r = rec(WORDS[i].w), b = r ? Math.min(r[0], MASTER) : 0;
-    return `<div class="result-row"><span><span class="en" style="font-weight:700">${esc(WORDS[i].w)}</span> · ${esc(WORDS[i].he)}</span><span class="kdots">${[1,2,3].map(k => `<i class="${b - 1 >= k ? "on" : ""}"></i>`).join("")}</span></div>`; };
+    return `<div class="result-row"><span><span class="en" style="font-weight:700">${esc(WORDS[i].w)}</span> · ${esc(WORDS[i].he)}</span><span class="kdots">${[1,2,3,4,5].map(k => `<i class="${b - 1 >= k ? "on" : ""}"></i>`).join("")}</span></div>`; };
   return `<div class="stack pop">
     <section class="card stack" style="text-align:center;align-items:center">
       <div class="label">${S.src === "verify" ? "צהוב ← ירוק · סיכום" : "למידה · סיכום"}</div>
@@ -947,7 +973,7 @@ function viewLearnResults(){
     </section>
     ${S.autoLeft != null && !(S.src === "verify" && !yellowCount()) ? `<div class="autonext">הסבב הבא מתחיל בעוד <b id="learnauto" class="num">${S.autoLeft}</b> שניות</div>` : ""}
     <div class="row"><button class="btn primary big" style="flex:2" data-act="learnNext">להמשיך עכשיו</button><button class="btn big" style="flex:1" data-act="learnStop">לעצור כאן</button></div>
-    <section class="card"><div class="label" style="margin-bottom:6px">המילים בסשן · נקודה ירוקה לכל תשובה נכונה ברצף (3 = ידועה)</div>${ids.map(row).join("")}</section>
+    <section class="card"><div class="label" style="margin-bottom:6px">המילים בסשן · נקודה לכל תשובה נכונה ברצף · 5 נקודות = ירוקה (צעד אחד בכל סבב)</div>${ids.map(row).join("")}</section>
     ${wrong.length ? `<p class="muted" style="margin:0;font-size:14px">${wrong.length} מילים שטעית בהן יחזרו כבר בסשן הבא.</p>` : ""}
   </div>`;
 }
@@ -2428,18 +2454,18 @@ function lsStage(){                                        // where the student 
 }
 function viewLearnTab(){
   const D = P.d[today()] || {n: 0}, tgt = newTarget(), st = lsStage(), cs = st.info[st.cur];
-  const nextWords = pick("learnnew", 8).map(i => WORDS[i].w);
+  const nextWords = ORDER.filter(i => !rec(WORDS[i].w) && !WORDS[i].b).slice(0, 8).map(i => WORDS[i].w);
   const yl = yellowCount(), yellowFirst = yl >= 40;
   const learnCard = `<section class="card actcard ${yellowFirst ? "" : "rec"}">
       <div class="acthead"><span class="swatch gray"></span><b>ללמוד מילים חדשות</b>${yellowFirst ? "" : `<span class="pill">מומלץ עכשיו</span>`}</div>
-      <p class="muted">20 מילים חדשות, הכי חשובות למבחן קודם. כל מילה שענית עליה הופכת לצהובה.</p>
+      <p class="muted">20 שאלות: 14 מילים חדשות (הכי חשובות למבחן קודם) מעורבבות עם 6 מילים שכבר למדת, כדי לחזק את המשמעות. מילה חדשה הופכת לצהובה, וירוקה רק אחרי 5 נכונות ברצף בסבבים שונים.</p>
       ${nextWords.length ? `<div class="chips">${nextWords.map(w => `<span class="wchip">${esc(w)}</span>`).join("")}</div>` : `<p class="muted">אין עוד מילים חדשות.</p>`}
-      <button class="btn ${yellowFirst ? "" : "primary"} big" data-learn="learnnew" ${nextWords.length ? "" : "disabled"}>ללמוד 20 מילים חדשות</button>
+      <button class="btn ${yellowFirst ? "" : "primary"} big" data-learn="learnnew" ${nextWords.length ? "" : "disabled"}>להתחיל סשן למידה (20 שאלות)</button>
       <div class="goalline"><span>היום: <b class="num">${D.n}</b>/${tgt} חדשות</span><span class="goal"><span style="width:${Math.min(100, tgt ? D.n / tgt * 100 : 0)}%"></span></span></div>
     </section>`;
   const verifyCard = `<section class="card actcard ${yellowFirst ? "rec" : ""}">
       <div class="acthead"><span class="swatch yellow"></span><span class="arrow">←</span><span class="swatch green"></span><b>להפוך צהוב לירוק</b>${yellowFirst ? `<span class="pill">מומלץ עכשיו</span>` : ""}</div>
-      <p class="muted">תרגול ווידוא על המילים שהתחלת ללמוד. כל תשובה נכונה מקדמת את המילה, ו-3 נכונות ברצף הופכות אותה לירוקה (ידועה). טעות מחזירה להתחלה.</p>
+      <p class="muted">תרגול ווידוא על המילים שהתחלת ללמוד. כל תשובה נכונה מקדמת את המילה צעד אחד (צעד אחד בכל סבב). 5 נכונות ברצף, בסבבים שונים, הופכות אותה לירוקה. טעות מחזירה להתחלה.</p>
       <div class="bignum"><b class="num">${yl}</b> מילים בצהוב</div>
       <button class="btn ${yellowFirst ? "primary" : ""} big" data-learn="verify" ${yl ? "" : "disabled"}>לתרגל ולוודא (20 שאלות)</button>
     </section>`;
@@ -2486,7 +2512,7 @@ document.getElementById("app").addEventListener("click", e => {
 /* ---------- my lists: every category as a list (word · translation · speaker) + practice that list ---------- */
 const CATS = [
   ["learned", "כל מה שלמדתי", "ירוקות וצהובות: כל מילה שכבר עבדת עליה", w => !!rec(w.w)],
-  ["known", "ירוקות · יודע", "3 נכונות ברצף, או שסימנת \"מכיר\"", w => { const r = rec(w.w); return !!r && r[0] >= MASTER; }],
+  ["known", "ירוקות · יודע", "5 נכונות ברצף בסבבים שונים, או שסימנת \"מכיר\"", w => { const r = rec(w.w); return !!r && r[0] >= MASTER; }],
   ["yellow", "צהובות · בלמידה", "התחלת ללמוד, עוד לא ירוקות", w => { const r = rec(w.w); return !!r && r[0] < MASTER; }],
   ["hard", "מילים שטעיתי בהן", "לפחות טעות אחת, הכי הרבה טעויות קודם", w => { const r = rec(w.w); return !!r && r[3] > 0; }],
   ["mine", "המילים שלי", "מילים שהוספת בכוכב", w => !!P.mine[w.w]],
@@ -2521,7 +2547,7 @@ function viewCatList(){
         <span class="cdot ${statusDot(w.w)}"></span><span class="cw"><span class="en">${esc(w.w)}</span></span>
         <span class="ch">${V.hide && !open ? `<span class="muted">· · ·</span>` : esc(w.he)}</span>
         ${open ? `<div class="cmore"><div class="sent">${markSentence(w)}</div><div class="sente">${esc(w.exhe || "")}</div>
-          ${r ? `<div class="muted num" style="font-size:13px">נכונות ${r[2]} · טעויות ${r[3]}${r[0] >= MASTER ? " · ירוקה" : ` · ${Math.max(0, MASTER - r[0])} נכונות ברצף עד ירוק`}</div>` : ""}</div>` : ""}
+          ${r ? `<div class="muted num" style="font-size:13px">נכונות ${r[2]} · טעויות ${r[3]}${r[0] >= MASTER ? " · ירוקה" : ` · ${Math.max(0, MASTER - Math.max(1, r[0]))} נכונות ברצף עד ירוק`}</div>` : ""}</div>` : ""}
       </div>`; }).join("")}</div>
     ${ids.length > V.limit ? `<button class="btn" data-act2="catmore">הצג עוד ${Math.min(200, ids.length - V.limit).toLocaleString("he-IL")}</button>` : ""}
   </div>`;
